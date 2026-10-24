@@ -163,3 +163,9 @@ export RZ_API_TOKEN='paste-your-scoped-token-here'
 For a one-shot prompt use `./scripts/rz-ai -m "Explain this error"`. To use a different base URL, set `RZ_AI_URL`; the default is `https://rz-ai.safenestt.com`. The CLI stores only a random conversation identifier in `~/.config/rz-ai/session` with restrictive file permissions. The API token remains in the shell environment and is never written by the client.
 
 **Important:** the terminal client sends prompts to the hosted assistant. It does not itself grant the hosted service access to your Kali shell. Local-machine command execution requires a separate, authenticated local bridge and should be enabled only with explicit command approval.
+
+## RZ-AI PWA and skill profiles
+
+The existing MIA assistant is installable as a Progressive Web App (PWA): `/manifest.webmanifest` provides install metadata, `/app-icon.svg` provides the icon, and `/sw.js` caches only the app shell. The service worker deliberately bypasses `/v1/*`, MCP, API docs, and authenticated/private data; offline mode can display the cached shell but does not make AI or account functions work offline. The UI remains the existing assistant at `/`—this is not an operating system or a replacement chat app.
+
+Built-in skill profiles live in `app/skills.py`. The chat endpoint adds concise, task-relevant guidance for strategic execution, software engineering, research and evidence, RZ principles, learning, ethical tool use, and creative communication. `GET /v1/skills` exposes only the non-sensitive profile names and descriptions, and `/skills` displays them in the same app. Skills guide reasoning and tool selection; they do not grant permissions, expand the server allowlist, or claim integrations are connected. RZ Collection notes remain in `docs/rz-collection-knowledge.md` and are treated as RZ's philosophy rather than universal fact.

@@ -925,9 +925,8 @@ MIA_AGENT_TOOLS = [
 
 
 def _should_use_mia_agent_tools(message: str) -> bool:
-    text = message.lower()
-    cues = ("act as an agent", "agent mode", "use your tools", "use tools to", "plan and execute", "research and create", "remember this", "save this to memory", "create a task", "make me a task plan", "analyze this document", "review this code", "use my local terminal", "autonomously", "multi-step task", "continue the task", "resume the task", "track my progress", "update my task", "work through this plan")
-    return any(cue in text for cue in cues)
+    from app.intent_router import should_use_agent_tools
+    return should_use_agent_tools(message)
 
 
 def _validate_mia_agent_tool_args(name: str, args: dict) -> None:
@@ -1269,6 +1268,39 @@ def mcp_settings_page():
     return (Path(__file__).parent / "mcp_settings.html").read_text(encoding="utf-8")
 
 
+@app.get("/manifest.webmanifest")
+def pwa_manifest():
+    """Install metadata for the existing RZ-AI assistant PWA."""
+    manifest = {
+        "id": "/", "name": "RZ-AI · MIA", "short_name": "RZ-AI",
+        "description": "Your personal AI assistant for research, building, learning, and getting things done.",
+        "start_url": "/", "scope": "/", "display": "standalone",
+        "background_color": "#050b13", "theme_color": "#071521",
+        "icons": [{"src": "/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
+        "categories": ["productivity", "education", "utilities"],
+    }
+    return Response(content=json.dumps(manifest, ensure_ascii=False), media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    """Serve a shell-only worker; never cache account data or API responses."""
+    script = (Path(__file__).parent / "sw.js").read_text(encoding="utf-8")
+    return Response(content=script, media_type="application/javascript", headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/app-icon.svg")
+def pwa_icon():
+    icon = (Path(__file__).parent / "app-icon.svg").read_text(encoding="utf-8")
+    return Response(content=icon, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/skills", response_class=HTMLResponse)
+def skills_page():
+    """Show the built-in RZ-AI skill profiles for the existing assistant."""
+    return (Path(__file__).parent / "skills.html").read_text(encoding="utf-8")
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return (Path(__file__).parent / "ui.html").read_text(encoding="utf-8")
@@ -1412,7 +1444,9 @@ def chat(request: ChatRequest, current_user: dict = Depends(require_app_user)):
         session_id = prefix + (request.session_id or uuid.uuid4().hex[:12])
     selected_model = _select_model_for_task(request.message, request.model)
     from app.user_preferences import personalized_system
+    from app.skills import skill_context
     effective_system = personalized_system(current_user.get("id", ""), request.system)
+    effective_system += "\n\n" + skill_context(request.message)
     return _complete_message(
         system=effective_system,
         user_content=request.message,
@@ -1933,6 +1967,13 @@ def generate_image(payload: dict, current_user: dict = Depends(require_tool_call
         raise HTTPException(status_code=502, detail="OpenRouter image service is unreachable or timed out") from None
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"Image provider response invalid: {str(exc)[:180]}") from None
+
+@app.get("/v1/skills")
+def list_assistant_skills():
+    """List the non-sensitive public skill catalogue; never expose prompts or credentials."""
+    from app.skills import public_skills
+    return {"status": "ok", "skills": public_skills()}
+
 
 @app.get("/v1/capabilities")
 def capabilities(_current_user: dict = Depends(require_tool_scope("mcp:read"))):

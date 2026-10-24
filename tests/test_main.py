@@ -907,3 +907,32 @@ def test_orphaned_persisted_terminal_approval_cannot_be_executed_after_restart(a
     history = app.cap_services.list_terminal_approvals('local', pending_only=False, limit=50)['jobs']
     item = next(row for row in history if row['id'] == job_id)
     assert item['approval'] == 'denied'
+
+
+def test_agent_tool_router_handles_natural_multistep_requests(app):
+    assert app._should_use_mia_agent_tools("Research and compare the options, then summarize your recommendation")
+    assert app._should_use_mia_agent_tools("Continue where we left off on the project")
+    assert app._should_use_mia_agent_tools("Please remember this for later: I prefer short summaries")
+    assert not app._should_use_mia_agent_tools("What is a PWA?")
+    assert not app._should_use_mia_agent_tools("Tell me a joke")
+
+
+def test_pwa_manifest_is_install_metadata_not_an_os_shell(app):
+    from fastapi.testclient import TestClient
+    response = TestClient(app.app).get('/manifest.webmanifest')
+    assert response.status_code == 200
+    assert response.headers['content-type'].startswith('application/manifest+json')
+    manifest = response.json()
+    assert manifest['name'] == 'RZ-AI · MIA'
+    assert manifest['start_url'] == '/'
+    assert manifest['display'] == 'standalone'
+    assert manifest['icons'][0]['src'] == '/app-icon.svg'
+
+
+def test_public_skill_catalog_contains_only_display_fields(app):
+    from fastapi.testclient import TestClient
+    response = TestClient(app.app).get('/v1/skills')
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload['skills']) == 7
+    assert all(set(skill) == {'id', 'name', 'description'} for skill in payload['skills'])
