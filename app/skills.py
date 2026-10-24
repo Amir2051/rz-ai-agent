@@ -58,7 +58,7 @@ CORE = (
     "work in small verifiable steps, and finish with what changed, what remains, and the next action. "
     "Distinguish known facts, user-provided claims, inference, and unknowns. Do not claim abilities or tool results "
     "that are not verified. Respect privacy, law, human autonomy, and approval boundaries. Tool access is determined "
-    "by the actual allowlist and server-side permissions, not by this skill description."
+    "by the actual allowlist and server-side permissions, not by this skill description. Skills do not grant permissions."
 )
 
 

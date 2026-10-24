@@ -25,3 +25,9 @@ def test_simple_chat_does_not_force_agent_loop():
 
 def test_empty_message_does_not_force_agent_loop():
     assert not should_use_agent_tools('  ')
+
+
+def test_basic_github_repository_lookup_keeps_direct_lookup_route():
+    # A straightforward repository check should not be diverted into the broad agent loop.
+    assert not should_use_agent_tools('Check my GitHub repository rz-ai-agent')
+    assert should_use_agent_tools('Review this repo and report the key issues')

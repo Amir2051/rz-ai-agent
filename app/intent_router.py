@@ -25,7 +25,7 @@ _ACTION_PATTERNS = (
     r"\b(?:remember|save)\b.{0,45}\b(?:this|that|for later|to memory|as a preference)\b",
     r"\b(?:create|make|build)\b.{0,35}\b(?:task|checklist|plan|tracker)\b",
     r"\b(?:resume|continue|pick up)\b.{0,40}\b(?:task|plan|project|work|where)\b",
-    r"\b(?:review|inspect|check|read)\b.{0,35}\b(?:my )?(?:repo|repository|pull request|issues|document|file)\b",
+    r"\b(?:review|inspect|read)\b.{0,35}\b(?:my )?(?:repo|repository|pull request|issues|document|file)\b",
     r"\b(?:search|research|investigate|compare)\b.{0,50}\b(?:and|then)\b.{0,35}\b(?:summarize|report|recommend|create|organize)\b",
     r"\b(?:track|update|mark)\b.{0,40}\b(?:my )?(?:progress|task|step|checklist)\b",
     r"\b(?:analyze|summarize|extract)\b.{0,35}\b(?:this )?(?:document|pdf|report|file)\b",
