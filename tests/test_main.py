@@ -929,6 +929,14 @@ def test_pwa_manifest_is_install_metadata_not_an_os_shell(app):
     assert manifest['icons'][0]['src'] == '/app-icon.svg'
 
 
+def test_home_page_includes_accessible_live_progress_indicator(app):
+    html = app.home()
+    assert 'class="mia-progress"' in html
+    assert 'aria-live="polite"' in html
+    assert 'Elapsed ' in html
+    assert 'No completion is assumed until a reply arrives' in html
+
+
 def test_public_skill_catalog_contains_only_display_fields(app):
     from fastapi.testclient import TestClient
     response = TestClient(app.app).get('/v1/skills')
