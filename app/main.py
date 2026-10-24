@@ -1431,6 +1431,36 @@ def local_terminal_result(job_id: str, result: dict, _bridge=Depends(_require_lo
     return {"status": "ok", "accepted": True}
 
 
+@app.get("/v1/agent/progress")
+def agent_progress(session_id: str, current_user: dict = Depends(require_app_user)):
+    """Return a sanitized progress snapshot for the authenticated user's current session."""
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    prefix = f"{current_user['id']}:"
+    if not session_id.startswith(prefix):
+        raise HTTPException(status_code=403, detail="Conversation does not belong to this account")
+    try:
+        runs = cap_services.list_agent_runs(str(current_user.get("id", "")), 20).get("runs", [])
+    except Exception:
+        # Progress is optional; never fail the chat because the ledger is unavailable.
+        return JSONResponse({"active": False, "events": []}, headers={"Cache-Control": "no-store"})
+    match = next((item for item in runs if item.get("session_id") == session_id and item.get("status") == "running"), None)
+    if not match:
+        return JSONResponse({"active": False, "events": []}, headers={"Cache-Control": "no-store"})
+    safe_events = []
+    for event in match.get("events", [])[-12:]:
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if kind == "tool_started":
+            safe_events.append({"type": kind, "tool": str(event.get("tool", "tool"))[:80], "at": event.get("at")})
+        elif kind in {"tool_completed", "tool_failed"}:
+            safe_events.append({"type": kind, "tool": str(event.get("tool", "tool"))[:80], "at": event.get("at")})
+        elif kind in {"run_started", "model_round_started"}:
+            safe_events.append({"type": kind, "round": event.get("round"), "at": event.get("at")})
+    return JSONResponse({"active": True, "run_id": match.get("id"), "status": "running", "events": safe_events}, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/v1/chat")
 def chat(request: ChatRequest, current_user: dict = Depends(require_app_user)):
     if not request.message:

@@ -944,3 +944,30 @@ def test_public_skill_catalog_contains_only_display_fields(app):
     payload = response.json()
     assert len(payload['skills']) == 7
     assert all(set(skill) == {'id', 'name', 'description'} for skill in payload['skills'])
+
+
+def test_agent_progress_returns_only_safe_event_metadata(app, monkeypatch):
+    monkeypatch.setattr(app.cap_services, "list_agent_runs", lambda user_id, limit: {
+        "runs": [{
+            "id": "run-1", "session_id": "user-1:session-1", "status": "running",
+            "events": [
+                {"type": "tool_started", "tool": "mia_web_search", "argument_keys": ["query"], "at": 1},
+                {"type": "tool_completed", "tool": "mia_web_search", "result": {"private": "must-not-leak"}, "at": 2},
+            ],
+        }]
+    })
+    response = app.agent_progress("user-1:session-1", {"id": "user-1"})
+    payload = json.loads(response.body)
+    assert payload["active"] is True
+    assert payload["run_id"] == "run-1"
+    assert [event["type"] for event in payload["events"]] == ["tool_started", "tool_completed"]
+    assert "result" not in json.dumps(payload)
+    assert "argument_keys" not in json.dumps(payload)
+    assert "must-not-leak" not in json.dumps(payload)
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_agent_progress_rejects_other_account_session(app):
+    with pytest.raises(HTTPException) as exc:
+        app.agent_progress("other-user:session-1", {"id": "user-1"})
+    assert exc.value.status_code == 403
