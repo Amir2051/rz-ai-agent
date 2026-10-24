@@ -971,3 +971,18 @@ def test_agent_progress_rejects_other_account_session(app):
     with pytest.raises(HTTPException) as exc:
         app.agent_progress("other-user:session-1", {"id": "user-1"})
     assert exc.value.status_code == 403
+
+
+
+def test_create_agent_session_is_account_scoped_and_uncached(app):
+    response = app.create_agent_session({"id": "user-123"})
+    payload = json.loads(response.body)
+    assert payload["session_id"].startswith("user-123:")
+    assert len(payload["session_id"].split(":", 1)[1]) == 16
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_create_agent_session_rejects_missing_user_id(app):
+    with pytest.raises(HTTPException) as exc:
+        app.create_agent_session({"id": ""})
+    assert exc.value.status_code == 401

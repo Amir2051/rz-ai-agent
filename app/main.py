@@ -1431,6 +1431,15 @@ def local_terminal_result(job_id: str, result: dict, _bridge=Depends(_require_lo
     return {"status": "ok", "accepted": True}
 
 
+@app.post("/v1/agent/session")
+def create_agent_session(current_user: dict = Depends(require_app_user)):
+    """Allocate an account-scoped chat session before the first model request."""
+    user_id = str(current_user.get("id", ""))
+    if not user_id or len(user_id) > 200:
+        raise HTTPException(status_code=401, detail="Authenticated user is invalid")
+    return JSONResponse({"session_id": f"{user_id}:{uuid.uuid4().hex[:16]}"}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/v1/agent/progress")
 def agent_progress(session_id: str, current_user: dict = Depends(require_app_user)):
     """Return a sanitized progress snapshot for the authenticated user's current session."""
