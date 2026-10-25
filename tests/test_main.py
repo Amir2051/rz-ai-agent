@@ -986,3 +986,30 @@ def test_create_agent_session_rejects_missing_user_id(app):
     with pytest.raises(HTTPException) as exc:
         app.create_agent_session({"id": ""})
     assert exc.value.status_code == 401
+
+def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypatch):
+    # Simulate production/account-auth mode without opening a database connection.
+    app.DATABASE_AUTH_ENABLED = True
+    app.API_KEY = "service-test-key"
+
+    def reject_session(_request):
+        raise HTTPException(status_code=401, detail="Please sign in")
+
+    monkeypatch.setattr(app, "_get_database_user", reject_session)
+
+    service_user = app.require_chat_user(object(), "", "service-test-key")
+    assert service_user["auth_type"] == "service_api_key"
+    assert service_user["id"].startswith("service-")
+    assert service_user["id"] != "service-test-key"
+    assert service_user["email"] == "service@rz-agent"
+
+    # The same key must not grant access to other routes using require_app_user.
+    with pytest.raises(HTTPException) as exc:
+        app.require_app_user(object(), "", "service-test-key")
+    assert exc.value.status_code == 401
+
+    # Invalid keys fall back to the existing session-auth requirement.
+    with pytest.raises(HTTPException) as exc:
+        app.require_chat_user(object(), "", "invalid-key")
+    assert exc.value.status_code == 401
+
