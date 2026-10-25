@@ -90,6 +90,8 @@ if DATABASE_AUTH_ENABLED:
     app.include_router(auth_router)
 
 API_KEY = os.getenv("RZ_API_KEY", "").strip()
+# Dedicated server-to-server credential avoids rotating the existing RZ_API_KEY.
+SERVICE_API_KEY = os.getenv("MIA_RZ_SERVICE_API_KEY", "").strip() or API_KEY
 if not API_KEY and not DATABASE_AUTH_ENABLED:
     raise RuntimeError(
         "Set RZ_API_KEY for local mode or DATABASE_URL for account-auth mode."
@@ -128,9 +130,9 @@ def require_chat_user(
     x_api_key: str = Header(default=""),
 ):
     """Allow a configured service key for chat only; preserve session/bearer auth elsewhere."""
-    if DATABASE_AUTH_ENABLED and API_KEY and x_api_key and hmac.compare_digest(x_api_key, API_KEY):
+    if DATABASE_AUTH_ENABLED and SERVICE_API_KEY and x_api_key and hmac.compare_digest(x_api_key, SERVICE_API_KEY):
         # Stable non-secret principal keeps service conversations separate from account sessions.
-        service_id = hashlib.sha256(API_KEY.encode("utf-8")).hexdigest()[:16]
+        service_id = hashlib.sha256(SERVICE_API_KEY.encode("utf-8")).hexdigest()[:16]
         return {
             "id": f"service-{service_id}",
             "email": "service@rz-agent",
