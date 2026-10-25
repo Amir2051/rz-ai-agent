@@ -1075,7 +1075,12 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
     try:
         for round_index in range(MAX_AGENT_TOOL_ROUNDS + 1):
             cap_services.record_agent_run_event(owner_id, run_id, {"type": "model_round_started", "round": round_index + 1})
-            result = _call_openrouter(messages, model or OPENROUTER_MODEL, temperature, max_tokens, tools=MIA_AGENT_TOOLS, tool_choice="auto")
+            tool_choice = "auto"
+            if round_index == 0:
+                from app.intent_router import requires_investment_candidate_discovery
+                if requires_investment_candidate_discovery(user_content):
+                    tool_choice = {"type": "function", "function": {"name": "mia_discover_investment_candidates"}}
+            result = _call_openrouter(messages, model or OPENROUTER_MODEL, temperature, max_tokens, tools=MIA_AGENT_TOOLS, tool_choice=tool_choice)
             choices = result.get("choices")
             choice = choices[0] if isinstance(choices, list) and choices else {}
             assistant = choice.get("message") if isinstance(choice, dict) else None
