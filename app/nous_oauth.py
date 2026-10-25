@@ -54,6 +54,12 @@ def _bootstrap_state() -> dict:
         raise NousOAuthError("Nous OAuth bootstrap state is invalid JSON") from None
     if not isinstance(state, dict):
         raise NousOAuthError("Nous OAuth bootstrap state must be a JSON object")
+    # Accept either a provider-state object or the official CLI auth-store envelope.
+    providers = state.get("providers")
+    if isinstance(providers, dict) and isinstance(providers.get("nous"), dict):
+        state = dict(providers["nous"])
+    elif isinstance(state.get("nous"), dict):
+        state = dict(state["nous"])
     if not isinstance(state.get("refresh_token"), str) or not state["refresh_token"].strip():
         raise NousOAuthError("Nous OAuth bootstrap state has no refresh token")
     if not isinstance(state.get("client_id"), str) or not state["client_id"].strip():
@@ -149,6 +155,8 @@ def get_access_token(force_refresh: bool = False) -> str:
     try:
         with psycopg.connect(database_url, connect_timeout=8) as conn:
             with conn.transaction():
+                # Serialize first-time bootstrap and refresh-token rotation across workers.
+                conn.execute("SELECT pg_advisory_xact_lock(734820196)")
                 _table_setup(conn)
                 row = conn.execute(
                     f"SELECT ciphertext FROM {TABLE} WHERE id = 1 FOR UPDATE"
