@@ -243,11 +243,16 @@ def _is_placeholder(token: str) -> bool:
 HERMES_BASE_URL = os.getenv(
     "HERMES_BASE_URL", "https://inference-api.nousresearch.com/v1"
 ).strip().rstrip("/")
-HERMES_API_KEY = os.getenv("HERMES_API_KEY", "").strip()
 HERMES_MODEL = os.getenv("HERMES_MODEL", "upstage/solar-mini4:free").strip()
-# A flag alone cannot authenticate to Nous inference; advertise Hermes only when
-# a server-side credential is actually configured.
-HERMES_ENABLED = bool(HERMES_API_KEY and not _is_placeholder(HERMES_API_KEY))
+# OAuth refresh state is encrypted in Postgres; no long-lived token is kept in app memory.
+NOUS_OAUTH_STATE_JSON = os.getenv("NOUS_OAUTH_STATE_JSON", "").strip()
+NOUS_OAUTH_ENCRYPTION_KEY = os.getenv("NOUS_OAUTH_ENCRYPTION_KEY", "").strip()
+HERMES_ENABLED = bool(
+    DATABASE_AUTH_ENABLED
+    and NOUS_OAUTH_STATE_JSON
+    and NOUS_OAUTH_ENCRYPTION_KEY
+    and not _is_placeholder(NOUS_OAUTH_ENCRYPTION_KEY)
+)
 
 # ---------------------------------------------------------------- Local Ollama fallback
 # Disabled unless explicitly configured. Use Ollama's native API so Qwen's
@@ -597,17 +602,10 @@ def _call_hermes(messages: list[dict], model: str, temperature, max_tokens) -> d
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
     data = json.dumps(payload).encode("utf-8")
-    headers: dict = {"Content-Type": "application/json"}
-    if HERMES_API_KEY:
-        headers["Authorization"] = f"Bearer {HERMES_API_KEY}"
-    req = URLRequest(
-        f"{HERMES_BASE_URL}/chat/completions",
-        data=data,
-        headers=headers,
-        method="POST",
+    from app import nous_oauth
+    return nous_oauth.chat_completions(
+        messages, model or HERMES_MODEL, temperature, max_tokens
     )
-    with urlopen(req, timeout=45) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def _extract_reply(result: dict) -> str:
