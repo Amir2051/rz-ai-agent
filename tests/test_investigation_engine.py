@@ -143,6 +143,9 @@ def test_reserved_example_domain_is_contextual_not_risk_evidence(monkeypatch):
     risk_stage = next(phase for phase in result["phases"] if phase["phase"] == 5)
     assert risk_stage["risk_level"] == "undetermined"
     assert risk_stage["contextual_findings"] == len(result["findings"])
+    assert all(item["requires_human_review"] is False for item in result["findings"])
+    assert result["summary"]["findings_requiring_review"] == 0
+    assert result["summary"]["observations_requiring_review"] == 0
 
 
 def test_osint_filters_results_without_target_match(monkeypatch):
@@ -171,3 +174,36 @@ def test_domain_relevance_gate_rejects_lookalike_domain(monkeypatch):
     assert result["result_count"] == 1
     assert result["results"][0]["title"] == "Actual subdomain"
     assert result["ignored_irrelevant_result_count"] == 1
+
+
+def test_search_metrics_distinguish_unavailable_from_zero_results(monkeypatch):
+    def fake_tool(name, kind, value):
+        if name == "dns_lookup":
+            return {"status": "success", "source": "test_dns", "domain": value, "addresses": ["203.0.113.7"]}
+        if name in {"osint_profile", "reputation_score", "darkweb_paste"}:
+            return {"status": "unavailable", "error": "search unavailable"}
+        return {"status": "not_configured"}
+    monkeypatch.setattr(engine, "run_tool", fake_tool)
+    result = engine.run_investigation({"domain": "example.com"})
+    metrics = result["search_metrics"]
+    assert metrics["searches_attempted"] == 3
+    assert metrics["unavailable_searches"] == 3
+    assert metrics["searches_with_candidate_counts"] == 0
+    assert metrics["candidate_results"] == 0
+    assert "not evidence of zero matches" in metrics["note"]
+
+
+def test_search_metrics_aggregate_candidate_relevance_and_discard_counts(monkeypatch):
+    def fake_tool(name, kind, value):
+        if name == "dns_lookup":
+            return {"status": "success", "source": "test_dns", "domain": value, "addresses": ["203.0.113.7"]}
+        if name in {"osint_profile", "reputation_score", "darkweb_paste"}:
+            return {"status": "no_data", "candidate_result_count": 4, "result_count": 1, "ignored_irrelevant_result_count": 3}
+        return {"status": "not_configured"}
+    monkeypatch.setattr(engine, "run_tool", fake_tool)
+    result = engine.run_investigation({"domain": "example.com"})
+    metrics = result["search_metrics"]
+    assert metrics["searches_with_candidate_counts"] == 3
+    assert metrics["candidate_results"] == 12
+    assert metrics["relevant_results_retained"] == 3
+    assert metrics["irrelevant_results_discarded"] == 9

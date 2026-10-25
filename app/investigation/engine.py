@@ -243,7 +243,7 @@ def run_tool(tool_name: str, indicator_type: str, value: str) -> dict[str, Any]:
     if tool_name == "osint_profile": return _osint(value, indicator_type)
     if tool_name == "reputation_score":
         result = _osint(value, indicator_type)
-        return {"status": result.get("status"), "source": result.get("source"), "indicator_type": indicator_type, "result_count": result.get("result_count", 0), "signals": result.get("results", [])[:3], "interpretation": "Search-result presence is not a validated reputation score; verify each source manually."}
+        return {"status": result.get("status"), "source": result.get("source"), "indicator_type": indicator_type, "result_count": result.get("result_count", 0), "candidate_result_count": result.get("candidate_result_count", 0), "ignored_irrelevant_result_count": result.get("ignored_irrelevant_result_count", 0), "signals": result.get("results", [])[:3], "interpretation": "Search-result presence is not a validated reputation score; verify each source manually."}
     if tool_name == "darkweb_paste":
         try:
             result = _search(f'site:ahmia.fi OR site:pastebin.com "{value}"', 5)
@@ -310,7 +310,9 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
                 "target": value,
                 "tool": tool,
                 "evidence": result,
-                "requires_human_review": True,
+                # Reserved documentation domains are context-only; do not inflate the
+                # substantive human-review queue with their routine DNS observations.
+                "requires_human_review": not reserved_example,
             })
 
     # Phase 2: collection and enrichment, routed only to applicable indicator types.
@@ -337,8 +339,21 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
     substantive_observation_count = len(findings) - contextual_count
     stages.append({"phase": 5, "name": "risk_assessment", "status": "success", "finding_count": len(findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "provider_errors": len(failures), "risk_level": "undetermined", "note": "Provider success and search-result presence are not risk signals by themselves. No automated guilt/innocence or fraud determination is made."})
 
+    # Search accounting is explicit: unavailable searches are not counted as zero-result searches.
+    search_calls = [item for item in calls if item["tool"] in {"osint_profile", "reputation_score", "darkweb_paste"}]
+    completed_searches = [item for item in search_calls if isinstance(item.get("result"), dict) and "candidate_result_count" in item["result"]]
+    search_metrics = {
+        "searches_attempted": len(search_calls),
+        "searches_with_candidate_counts": len(completed_searches),
+        "candidate_results": sum(int(item["result"].get("candidate_result_count", 0) or 0) for item in completed_searches),
+        "relevant_results_retained": sum(int(item["result"].get("result_count", 0) or 0) for item in completed_searches),
+        "irrelevant_results_discarded": sum(int(item["result"].get("ignored_irrelevant_result_count", 0) or 0) for item in completed_searches),
+        "unavailable_searches": sum(item.get("status") == "unavailable" for item in search_calls),
+        "note": "Unavailable searches have no candidate count; they are not evidence of zero matches.",
+    }
+
     # Phase 6: machine-readable report with explicit gaps and config readiness.
-    stages.append({"phase": 6, "name": "report_generation", "status": "success", "report_sections": ["summary", "tool_calls", "findings", "configuration", "limitations"]})
+    stages.append({"phase": 6, "name": "report_generation", "status": "success", "report_sections": ["summary", "tool_calls", "findings", "configuration", "limitations", "search_metrics"]})
     return {
         "status": "completed" if any(x["status"] == "success" for x in calls) else "partial",
         "run_id": run_id,
@@ -350,7 +365,8 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
         "indicators": normalized,
         "tool_calls": calls,
         "findings": findings,
-        "summary": {"tools_attempted": len(calls), "tools_succeeded": sum(x["status"] == "success" for x in calls), "providers_not_configured": sum(x["status"] == "not_configured" for x in calls), "findings_requiring_review": len(findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "sources": sources},
+        "summary": {"tools_attempted": len(calls), "tools_succeeded": sum(x["status"] == "success" for x in calls), "providers_not_configured": sum(x["status"] == "not_configured" for x in calls), "findings_requiring_review": sum(bool(item.get("requires_human_review")) for item in findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "sources": sources},
+        "search_metrics": search_metrics,
         "configuration": {"providers": [{"env_key": key, "purpose": purpose, "configured": configured[key]} for key, purpose in ENV_KEYS.items()]},
-        "limitations": ["External data can be incomplete, delayed, or incorrect.", "A provider success only confirms a response was received; it does not validate the conclusion.", "Public-search findings are retained only when the title, URL, or snippet visibly matches the indicator.", "Confidence is qualitative and describes the evidence status, not the probability of wrongdoing.", "Reserved example domains are classified as contextual information, not adverse risk evidence.", "All findings require human review and corroboration.", "Missing credentials are reported as not_configured and are never silently treated as a clean result."],
+        "limitations": ["External data can be incomplete, delayed, or incorrect.", "A provider success only confirms a response was received; it does not validate the conclusion.", "Public-search findings are retained only when the title, URL, or snippet visibly matches the indicator.", "Confidence is qualitative and describes the evidence status, not the probability of wrongdoing.", "Reserved example domains are classified as contextual information, not adverse risk evidence.", "Substantive findings require human review and corroboration; contextual-only observations do not count as adverse findings.", "Missing credentials are reported as not_configured and are never silently treated as a clean result."],
     }
