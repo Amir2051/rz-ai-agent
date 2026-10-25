@@ -40,7 +40,8 @@ def test_refresh_sends_refresh_token_only_as_header_and_persists_rotation(monkey
     def fake_urlopen(request, timeout=20):
         calls.append(request)
         assert request.full_url == "https://portal.nousresearch.com/api/oauth/token"
-        assert request.get_header("X-nous-refresh-token") == old_refresh
+        headers = {key.lower(): value for key, value in request.header_items()}
+        assert headers["x-nous-refresh-token"] == old_refresh
         assert old_refresh not in (request.data or b"").decode("utf-8", "ignore")
         assert timeout == 20
         return FakeResponse({
