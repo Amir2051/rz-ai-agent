@@ -846,6 +846,11 @@ def test_mia_agent_tool_router_is_opt_in(app):
     names = {item["function"]["name"] for item in app.MIA_AGENT_TOOLS}
     assert {"mia_web_search", "mia_open_page", "mia_memory_list", "mia_memory_save", "mia_task_create", "mia_task_list", "mia_task_update_step", "mia_read_document", "mia_review_code", "mia_github_read", "mia_request_local_command", "mia_safenestt_investigate"} <= names
     assert app._should_use_mia_agent_tools("Run a SafeNestT investigation on this domain")
+    assert app._should_use_mia_agent_tools("Run a complete validation investigation for example.com")
+    from app.intent_router import should_run_investigation
+    assert should_run_investigation("Run a complete validation investigation for example.com")
+    assert should_run_investigation("Please execute a six-phase investigation for example.net")
+    assert not should_run_investigation("What is an investigation?")
 
 
 def test_mia_agent_tool_arguments_are_validated_server_side(app):
@@ -894,6 +899,29 @@ def test_mia_agent_loop_executes_task_tool_then_summarizes_verified_result(app, 
     assert result["choices"][0]["message"]["content"].startswith("Created the Launch feature")
     assert len(calls) == 2
     assert calls[0][1]["tools"] == app.MIA_AGENT_TOOLS
+
+def test_explicit_investigation_forces_tool_execution_before_any_narration(app, monkeypatch):
+    calls = []
+    investigation = {"status": "completed", "run_id": "investigation-123", "summary": {"overall_risk": "undetermined"}, "phases": [{"phase": i, "name": name, "status": "completed"} for i, name in enumerate(["validation", "collection", "normalization", "correlation", "risk_assessment", "report_generation"], 1)], "tool_calls": []}
+    def fake_completion(messages, model, temperature, max_tokens, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        if len(calls) == 1:
+            assert kwargs["tool_choice"] == "required"
+            assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["mia_safenestt_investigate"]
+            return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [{"id": "investigate-1", "type": "function", "function": {"name": "mia_safenestt_investigate", "arguments": json.dumps({"indicators": {"domain": "example.com"}})}}]}}]}
+        assert any(message.get("role") == "tool" and "investigation-123" in message.get("content", "") for message in messages)
+        return {"choices": [{"message": {"role": "assistant", "content": "Investigation completed. Run ID: investigation-123. Risk: undetermined."}}]}
+    monkeypatch.setattr(app, "_call_openrouter", fake_completion)
+    monkeypatch.setattr(app, "_dispatch_mia_agent_tool", lambda name, args, owner, session: investigation)
+    result = app._complete_with_mia_agent_tools("system", "Run a complete validation investigation for example.com", "owner-7:session-1", "test-model", 0, 500)
+    assert len(calls) == 2
+    assert "Run ID: investigation-123" in result["choices"][0]["message"]["content"]
+
+def test_explicit_investigation_fails_closed_if_model_skips_tool(app, monkeypatch):
+    monkeypatch.setattr(app, "_call_openrouter", lambda *args, **kwargs: {"choices": [{"message": {"role": "assistant", "content": "I will proceed with the investigation."}}]})
+    with pytest.raises(app.HTTPException, match="did not invoke the investigation tool"):
+        app._complete_with_mia_agent_tools("system", "Run a complete validation investigation for example.com", "owner-7:session-2", "test-model", 0, 500)
+
 
 def test_agent_run_history_endpoint_is_authenticated_and_owner_scoped(app):
     from fastapi.testclient import TestClient
