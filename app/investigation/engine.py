@@ -7,6 +7,7 @@ not abort the investigation.
 """
 from __future__ import annotations
 
+import html as html_lib
 import ipaddress
 import json
 import os
@@ -138,6 +139,37 @@ def _is_reserved_example_domain(value: str) -> bool:
     return any(domain == reserved or domain.endswith("." + reserved) for reserved in ("example.com", "example.net", "example.org"))
 
 
+def _iana_reserved_example_reference(value: str) -> dict[str, Any] | None:
+    """Fetch IANA's public reserved-domain reference when search engines are unavailable.
+
+    This is intentionally limited to IANA-reserved example domains; it is not a generic
+    search substitute and cannot produce adverse findings. No provider credential is used.
+    """
+    if not _is_reserved_example_domain(value):
+        return None
+    url = "https://www.iana.org/domains/reserved"
+    try:
+        req = Request(url, headers={"Accept": "text/html", "User-Agent": "MIA-RZ-Investigation/1.0"}, method="GET")
+        with urlopen(req, timeout=8) as response:
+            raw = response.read(1_000_001)
+        if len(raw) > 1_000_000:
+            return None
+        html = raw.decode("utf-8", "replace")
+        plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html_lib.unescape(html))).strip()
+        pos = plain.casefold().find(value.casefold())
+        if pos < 0:
+            return None
+        snippet = plain[max(0, pos - 100):min(len(plain), pos + 260)]
+        return {
+            "source": "IANA official reserved-domains reference",
+            "results": [{"title": "IANA-managed Reserved Domains", "url": url, "snippet": snippet}],
+            "count": 1,
+            "fallback_used": True,
+        }
+    except Exception:
+        return None
+
+
 def _osint(value: str, kind: str) -> dict[str, Any]:
     query = f'{kind} "{value}"'
     try:
@@ -159,6 +191,24 @@ def _osint(value: str, kind: str) -> dict[str, Any]:
             "timestamp": _now(),
         }
     except Exception as exc:
+        fallback = _iana_reserved_example_reference(value) if kind == "domain" else None
+        if fallback:
+            candidates = fallback["results"]
+            relevant = [item for item in candidates if _result_mentions_indicator(item, value, kind)]
+            return {
+                "status": "success" if relevant else "no_data",
+                "source": fallback["source"],
+                "query_type": kind,
+                "query": value,
+                "result_count": len(relevant),
+                "candidate_result_count": len(candidates),
+                "ignored_irrelevant_result_count": len(candidates) - len(relevant),
+                "results": relevant,
+                "fallback_used": True,
+                "relevance_policy": "Only results visibly mentioning the indicator in title, URL, or snippet are retained.",
+                "limitations": ["Search engines were unavailable; this is a direct lookup of IANA's official reserved-domain reference, not a general web search.", "The source establishes documentation-domain context only, not adverse activity."],
+                "timestamp": _now(),
+            }
         return {**_http_error(exc), "source": "public_web_search", "query_type": kind, "query": value, "timestamp": _now()}
 
 def _provider(name: str, value: str, kind: str, extra: dict | None = None) -> dict[str, Any]:
