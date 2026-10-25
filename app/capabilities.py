@@ -628,7 +628,8 @@ def list_terminal_approvals(user_id: str, pending_only: bool = True, limit: int 
         sql = ('SELECT job_id,command,workspace,approval,status,result,created_at FROM rz_terminal_approvals WHERE user_id=%s' if kind == 'postgres' else 'SELECT job_id,command,workspace,approval,status,result,created_at FROM rz_terminal_approvals WHERE user_id=?')
         params = [user_id]
         if pending_only: sql += ' AND approval=%s' if kind == 'postgres' else ' AND approval=?'; params.append('pending')
-        sql += ' ORDER BY created_at ASC LIMIT %s' if kind == 'postgres' else ' ORDER BY created_at ASC LIMIT ?'; params.append(limit)
+        ordering = 'ASC' if pending_only else 'DESC'
+        sql += f' ORDER BY created_at {ordering} LIMIT %s' if kind == 'postgres' else f' ORDER BY created_at {ordering} LIMIT ?'; params.append(limit)
         rows = conn.execute(sql, tuple(params)).fetchall()
     finally: conn.close()
     return {'jobs':[{'id':r[0], 'command':r[1], 'workspace':r[2], 'approval':r[3], 'status':r[4], 'result': json.loads(r[5]) if isinstance(r[5], str) else r[5], 'created':r[6]} for r in rows]}
