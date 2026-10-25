@@ -51,3 +51,17 @@ def test_explicit_investment_tool_request_routes_to_agent_tools():
     assert should_use_agent_tools(
         'Return candidates, quote timestamps, source links, key risks, and evidence quality.'
     )
+
+
+
+def test_broad_investment_scan_requires_candidate_discovery():
+    from app.intent_router import requires_investment_candidate_discovery
+    assert requires_investment_candidate_discovery(
+        "Run mia_opportunity_scan for 3 U.S.-listed stocks with live quotes."
+    )
+    assert requires_investment_candidate_discovery("Find investment opportunities in healthcare ETFs")
+
+
+def test_named_investment_candidates_skip_discovery_stage():
+    from app.intent_router import requires_investment_candidate_discovery
+    assert not requires_investment_candidate_discovery("Compare AAPL and MSFT with current quotes")
