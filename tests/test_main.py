@@ -187,23 +187,22 @@ def test_reset_clears_conversation(app, monkeypatch):
     assert "prior" not in resp.reply  # reset removed prior context
 
 
-def test_does_not_fallback_to_unverified_hermes_when_openrouter_is_configured(app, monkeypatch):
+def test_falls_back_to_hermes_when_openrouter_fails(app, monkeypatch):
     def fake_openrouter(messages, model, temperature, max_tokens):
-        raise RuntimeError("ZDR endpoint unavailable")
+        raise RuntimeError("OpenRouter endpoint unavailable")
 
     def fake_hermes(messages, model, temperature, max_tokens):
-        raise AssertionError("must not route to Hermes after OpenRouter failure")
+        assert model == "upstage/solar-mini4"
+        return {"choices": [{"message": {"content": "Hermes fallback reply"}}]}
 
     monkeypatch.setattr(app, "HERMES_ENABLED", True)
     with mock.patch.object(app, "_call_openrouter", fake_openrouter), \
          mock.patch.object(app, "_call_hermes", fake_hermes):
-        with pytest.raises(HTTPException) as exc:
-            app._complete_message(
-                "s", "from hermes", "sess2", "example/openrouter-model", None, None
-            )
+        resp = app._complete_message("s", "from hermes", "sess2", None, None, None)
 
-    assert exc.value.status_code == 502
-    assert "ZDR endpoint unavailable" in exc.value.detail
+    assert resp.status == "ok"
+    assert resp.provider == "hermes"
+    assert resp.reply == "Hermes fallback reply"
 
 
 def test_hermes_can_be_primary_when_openrouter_is_not_configured(app, monkeypatch):
@@ -777,6 +776,36 @@ def test_cartesia_voice_endpoint_requires_server_configuration(app, monkeypatch)
     assert response.status_code == 503
     assert "CARTESIA_API_KEY" in response.json()["detail"]
 
+
+
+
+def test_ollama_api_key_is_sent_as_bearer_auth(app, monkeypatch):
+    import json as json_module
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return json_module.dumps({"model": "qwen3:1.7b", "message": {"content": "authenticated local reply"}}).encode()
+
+    captured = {}
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["authorization"] = req.get_header("Authorization")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(app, "OLLAMA_ENABLED", True)
+    monkeypatch.setattr(app, "OLLAMA_BASE_URL", "https://ollama.example.test")
+    monkeypatch.setattr(app, "OLLAMA_API_KEY", "test-ollama-secret")
+    monkeypatch.setattr(app, "urlopen", fake_urlopen)
+    result = app._call_ollama([{"role": "user", "content": "hello"}], "qwen3:1.7b", None, 20)
+
+    assert captured["url"] == "https://ollama.example.test/api/chat"
+    assert captured["authorization"] == "Bearer test-ollama-secret"
+    assert result["choices"][0]["message"]["content"] == "authenticated local reply"
 
 
 def test_ollama_is_used_as_local_fallback_after_openrouter_failure(app, monkeypatch):

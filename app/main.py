@@ -229,6 +229,14 @@ def _openrouter_chat_completions_url(endpoint: str) -> str:
         return f"{endpoint}/api/v1/chat/completions"
     return endpoint
 
+def _is_placeholder(token: str) -> bool:
+    """True when a token looks like a redacted/placeholder value rather than a real key."""
+    t = token.strip()
+    if not t:
+        return True
+    return set(t) <= {"*", "?", ".", "-"} or t.startswith("***")
+
+
 # ---------------------------------------------------------------- Hermes default (fallback)
 # The Hermes default inference API (Nous Research). Used when OpenRouter cannot
 # authenticate or fails so the assistant keeps replying.
@@ -236,13 +244,16 @@ HERMES_BASE_URL = os.getenv(
     "HERMES_BASE_URL", "https://inference-api.nousresearch.com/v1"
 ).strip().rstrip("/")
 HERMES_API_KEY = os.getenv("HERMES_API_KEY", "").strip()
-HERMES_MODEL = os.getenv("HERMES_MODEL", "upstage/solar-mini4").strip()
-HERMES_ENABLED = bool(HERMES_API_KEY or os.getenv("HERMES_DEFAULT", "0").strip().lower() in {"1", "true", "yes"})
+HERMES_MODEL = os.getenv("HERMES_MODEL", "upstage/solar-mini4:free").strip()
+# A flag alone cannot authenticate to Nous inference; advertise Hermes only when
+# a server-side credential is actually configured.
+HERMES_ENABLED = bool(HERMES_API_KEY and not _is_placeholder(HERMES_API_KEY))
 
 # ---------------------------------------------------------------- Local Ollama fallback
 # Disabled unless explicitly configured. Use Ollama's native API so Qwen's
 # thinking tokens cannot be mistaken for the final assistant answer.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "").strip().rstrip("/")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:1.7b").strip() or "qwen3:1.7b"
 OLLAMA_TIMEOUT_SECONDS = max(1, min(int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90")), 180))
 OLLAMA_ENABLED = bool(OLLAMA_BASE_URL)
@@ -267,10 +278,13 @@ def _call_ollama(messages: list[dict], model: str, temperature, max_tokens, tool
         options["num_predict"] = max_tokens
     if options:
         payload["options"] = options
+    headers = {"Content-Type": "application/json"}
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
     req = URLRequest(
         f"{OLLAMA_BASE_URL}/api/chat",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as response:
@@ -413,14 +427,6 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
 
 _store_lock = threading.Lock()
 _conversations = {}  # session_id -> {"history": [...], "updated": float, "model": str}
-
-
-def _is_placeholder(token: str) -> bool:
-    """True when a token looks like a redacted/placeholder value rather than a real key."""
-    t = token.strip()
-    if not t:
-        return True
-    return set(t) <= {"*", "?", ".", "-"} or t.startswith("***")
 
 
 # ---------------------------------------------------------------- session store
@@ -594,8 +600,6 @@ def _call_hermes(messages: list[dict], model: str, temperature, max_tokens) -> d
     headers: dict = {"Content-Type": "application/json"}
     if HERMES_API_KEY:
         headers["Authorization"] = f"Bearer {HERMES_API_KEY}"
-    else:
-        headers["X-Api-Key"] = ""
     req = URLRequest(
         f"{HERMES_BASE_URL}/chat/completions",
         data=data,
@@ -1142,8 +1146,9 @@ def _complete_message(
         # OpenRouter retains its configured ZDR policy; local Ollama below is
         # a separately configured endpoint and never routes through OpenRouter.
         providers.append(("openrouter", _call_openrouter))
-    elif HERMES_ENABLED:
-        # Hermes may be used as the primary only when OpenRouter is not configured.
+    if HERMES_ENABLED:
+        # Use Hermes as the primary when OpenRouter is absent, or as a fallback
+        # when the configured OpenRouter endpoint fails. Requires a valid key.
         providers.append(("hermes", _call_hermes))
     if OLLAMA_ENABLED:
         providers.append(("ollama", _call_ollama))
