@@ -410,7 +410,16 @@ html[data-mia-theme="light"] .mia-sidebar button.secondary{background:#f6fafc!im
 @media(prefers-reduced-motion:reduce){.empty:before{animation:none!important}}
 
 
-/* BLUE COMMAND BRIDGE — holographic command-deck finish */
+/* Ambient Blue Bridge animation */
+@media(prefers-reduced-motion:no-preference){.head .logo{animation:bridgePulse 4s ease-in-out infinite!important}.head .logo:after{animation:bridgeOrbit 14s linear infinite!important}.head .status .dot{animation:bridgeSignal 2s ease-in-out infinite!important}.head:after{background-size:200% 100%!important;animation:bridgeFlow 8s linear infinite!important}.mia-sidebar,.chat{animation:bridgeArrive .7s ease-out both!important}.chathead{position:relative;overflow:hidden}.chathead:after{content:"";position:absolute;top:0;bottom:0;left:-35%;width:24%;pointer-events:none;background:linear-gradient(90deg,transparent,#56e8ff08,#56e8ff30,#56e8ff08,transparent);transform:skewX(-18deg);animation:bridgeSweep 9s ease-in-out infinite}.empty:before{animation:mia-reactor-breathe 4s ease-in-out infinite,mia-reactor-spin 32s linear infinite!important}.side-nav-item.is-active .side-nav-icon{animation:bridgeSignal 3s ease-in-out infinite}.tool-card,.mia-theme-toggle{transition:transform .2s ease,box-shadow .2s ease!important}.tool-card:hover,.mia-theme-toggle:hover{transform:translateY(-2px)!important}}
+@keyframes bridgePulse{0%,100%{filter:brightness(.92);box-shadow:0 0 15px #43d9ff12,inset 0 0 16px #43d9ff08}50%{filter:brightness(1.16);box-shadow:0 0 28px #43d9ff35,inset 0 0 22px #43d9ff20}}
+@keyframes bridgeOrbit{to{transform:rotate(360deg)}}
+@keyframes bridgeSignal{0%,100%{opacity:.72;box-shadow:0 0 0 0 #56e8ff00}50%{opacity:1;box-shadow:0 0 0 5px #56e8ff12}}
+@keyframes bridgeFlow{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@keyframes bridgeArrive{from{opacity:.75;translate:0 6px}to{opacity:1;translate:0 0}}
+@keyframes bridgeSweep{0%,24%{left:-35%;opacity:0}34%{opacity:1}58%,100%{left:125%;opacity:0}}
+@media(prefers-reduced-motion:reduce){.head .logo,.head .logo:after,.head .status .dot,.head:after,.mia-sidebar,.chat,.chathead:after,.empty:before,.side-nav-item.is-active .side-nav-icon{animation:none!important}.tool-card,.mia-theme-toggle{transition:none!important}}
+\n/* BLUE COMMAND BRIDGE — holographic command-deck finish */
 :root{--bridge-blue:#168dff;--bridge-cyan:#56e8ff;--bridge-ice:#c7f7ff;--bridge-line:#1d5674}
 body{background:radial-gradient(ellipse at 50% -15%,#123d70 0%,#081b33 38%,#040b18 76%)!important}
 body:before{opacity:.7!important;background-image:linear-gradient(#4ddcff0b 1px,transparent 1px),linear-gradient(90deg,#4ddcff0b 1px,transparent 1px)!important;background-size:34px 34px!important;mask-image:linear-gradient(to bottom,#000 0%,transparent 82%)}
