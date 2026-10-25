@@ -16,9 +16,9 @@ def app(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "")
     os.environ["RZ_API_KEY"] = "test-key"
     os.environ["OPENROUTER_API_KEY"] = "real"
-    os.environ["HERMES_API_KEY"] = "hermes-secret"
+    os.environ["NOUS_OAUTH_STATE_JSON"] = ""
+    os.environ["NOUS_OAUTH_ENCRYPTION_KEY"] = ""
     os.environ["HERMES_MODEL"] = "upstage/solar-mini4"
-    os.environ["HERMES_ENABLED"] = "1"
     sys.modules.pop("app.main", None)
     sys.modules.pop("app.auth", None)
     import app.main as m  # noqa: F401
@@ -27,7 +27,7 @@ def app(monkeypatch):
 
     with m._store_lock:
         m._conversations.clear()
-    for key in ("RZ_API_KEY", "OPENROUTER_API_KEY", "HERMES_API_KEY", "HERMES_MODEL", "HERMES_ENABLED"):
+    for key in ("RZ_API_KEY", "OPENROUTER_API_KEY", "NOUS_OAUTH_STATE_JSON", "NOUS_OAUTH_ENCRYPTION_KEY", "HERMES_MODEL"):
         os.environ.pop(key, None)
 
 
