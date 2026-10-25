@@ -209,3 +209,31 @@ def test_search_metrics_aggregate_candidate_relevance_and_discard_counts(monkeyp
     assert metrics["candidate_results"] == 12
     assert metrics["relevant_results_retained"] == 3
     assert metrics["irrelevant_results_discarded"] == 9
+
+
+def test_reserved_example_domain_uses_iana_reference_when_search_is_unavailable(monkeypatch):
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, limit):
+            return b"<html><title>IANA-managed Reserved Domains</title><body>Example domains example.com and example.org are maintained for documentation purposes and are not available for registration or transfer.</body></html>"
+    def fail_search(*args, **kwargs):
+        raise RuntimeError("Web search could not retrieve usable results")
+    monkeypatch.setattr(engine, "_search", fail_search)
+    monkeypatch.setattr(engine, "urlopen", lambda *args, **kwargs: FakeResponse())
+    result = engine.run_tool("osint_profile", "domain", "example.com")
+    assert result["status"] == "success"
+    assert result["source"] == "IANA official reserved-domains reference"
+    assert result["fallback_used"] is True
+    assert result["candidate_result_count"] == 1
+    assert result["result_count"] == 1
+    assert result["ignored_irrelevant_result_count"] == 0
+
+
+def test_iana_reference_fallback_is_not_used_for_ordinary_domains(monkeypatch):
+    def fail_search(*args, **kwargs):
+        raise RuntimeError("Web search could not retrieve usable results")
+    monkeypatch.setattr(engine, "_search", fail_search)
+    monkeypatch.setattr(engine, "urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("IANA fallback should not run")))
+    result = engine.run_tool("osint_profile", "domain", "not-reserved-example.invalid")
+    assert result["status"] == "unavailable"
