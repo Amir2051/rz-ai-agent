@@ -4,10 +4,24 @@ from app.skills import matching_skills, public_skills, skill_context
 def test_public_skill_catalog_has_expected_profiles():
     ids = {item['id'] for item in public_skills()}
     assert ids == {
-        'strategic_operator', 'software_engineering', 'research_and_evidence',
-        'rz_principles', 'learning_coach', 'ethical_tool_use',
-        'creator_and_communication',
+        'strategic_operator', 'software_engineering', 'investment_intelligence',
+        'research_and_evidence', 'rz_principles', 'learning_coach',
+        'ethical_tool_use', 'creator_and_communication',
     }
+
+
+def test_investment_skill_matches_market_and_entry_price_questions():
+    matches = matching_skills('Compare ETFs and stocks for the best buying opportunity and entry price')
+    assert matches
+    assert matches[0]['id'] == 'investment_intelligence'
+    assert 'do not invent prices' in matches[0]['guidance']
+    assert 'Do not execute trades' in matches[0]['guidance']
+
+
+def test_investment_context_mentions_risk_and_uncertainty():
+    context = skill_context('Find investment opportunities in the market')
+    assert 'downside risks' in context
+    assert 'live data is unavailable' in context
 
 
 def test_software_engineering_skill_matches_debugging_request():
