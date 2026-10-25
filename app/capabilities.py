@@ -178,6 +178,80 @@ def investment_research(query: str, limit: int = 4) -> dict:
     }
 
 
+def investment_quotes(symbols: list) -> dict:
+    """Fetch timestamped public market quote metadata for a bounded ticker list.
+
+    Yahoo Finance's chart endpoint is a third-party public endpoint, not a licensed
+    market-data contract. Responses must be treated as potentially delayed/unavailable.
+    """
+    if not isinstance(symbols, list) or not 1 <= len(symbols) <= 10:
+        raise ValueError("symbols must be a list containing 1–10 ticker symbols")
+    normalized = []
+    for symbol in symbols:
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9.^=-]{1,20}", symbol.strip()):
+            raise ValueError("each ticker must contain 1–20 letters, digits, dots, carets, equals, or hyphens")
+        ticker = symbol.strip().upper()
+        if ticker not in normalized:
+            normalized.append(ticker)
+    quotes = []
+    errors = []
+    now = time.time()
+    for ticker in normalized:
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/" + quote_plus(ticker, safe=".^=-") + "?range=5d&interval=1d"
+        req = Request(url, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0 (compatible; MIA-RZ/1.0)"}, method="GET")
+        try:
+            with urlopen(req, timeout=10) as response:
+                raw = response.read(500_001)
+            if len(raw) > 500_000:
+                raise ValueError("market-data response exceeded the size limit")
+            payload = json.loads(raw.decode("utf-8"))
+            chart = payload.get("chart", {}) if isinstance(payload, dict) else {}
+            results = chart.get("result") if isinstance(chart, dict) else None
+            if not results or not isinstance(results[0], dict):
+                errors.append({"symbol": ticker, "error": "Provider returned no quote data"})
+                continue
+            meta = results[0].get("meta", {})
+            price = meta.get("regularMarketPrice")
+            market_time = meta.get("regularMarketTime")
+            if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+                errors.append({"symbol": ticker, "error": "Provider returned no valid market price"})
+                continue
+            stamp = float(market_time) if isinstance(market_time, (int, float)) and not isinstance(market_time, bool) else None
+            age = max(0, int(now - stamp)) if stamp else None
+            quotes.append({
+                "symbol": ticker,
+                "name": str(meta.get("longName") or meta.get("shortName") or ticker)[:200],
+                "price": float(price),
+                "currency": str(meta.get("currency") or "unknown")[:12],
+                "exchange": str(meta.get("fullExchangeName") or meta.get("exchangeName") or "unknown")[:80],
+                "instrument_type": str(meta.get("instrumentType") or "unknown")[:40],
+                "market_timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp)) if stamp else None,
+                "quote_age_seconds": age,
+                "stale": age is None or age > 72 * 60 * 60,
+                "previous_close": meta.get("chartPreviousClose") if isinstance(meta.get("chartPreviousClose"), (int, float)) else None,
+                "fifty_two_week_high": meta.get("fiftyTwoWeekHigh") if isinstance(meta.get("fiftyTwoWeekHigh"), (int, float)) else None,
+                "fifty_two_week_low": meta.get("fiftyTwoWeekLow") if isinstance(meta.get("fiftyTwoWeekLow"), (int, float)) else None,
+                "source_url": url,
+            })
+        except HTTPError as exc:
+            errors.append({"symbol": ticker, "error": f"Market-data provider returned HTTP {exc.code}"})
+        except (URLError, TimeoutError):
+            errors.append({"symbol": ticker, "error": "Market-data provider is unreachable"})
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            errors.append({"symbol": ticker, "error": str(exc)[:200] or "Invalid market-data response"})
+    return {
+        "provider": "Yahoo Finance chart endpoint (third-party public endpoint; not a licensed feed)",
+        "retrieved_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        "quotes": quotes,
+        "errors": errors,
+        "limitations": [
+            "Quotes may be delayed, incomplete, or unavailable; check the market timestamp, not just retrieval time.",
+            "This is a prototype data connector, not a guaranteed real-time or licensed market-data service.",
+            "Prices are research inputs only and do not constitute a personalized investment recommendation.",
+        ],
+    }
+
+
 def web_research(query: str, limit: int = 5) -> dict:
     if not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY:
         raise ValueError(f"query must contain 1–{MAX_QUERY} characters")

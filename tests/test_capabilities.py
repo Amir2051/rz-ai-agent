@@ -92,6 +92,56 @@ def test_investment_research_endpoint_requires_auth_and_validates_query(app, mon
     assert response.json()["status"] == "ok"
     assert client.post('/v1/investment/research', headers={'X-API-Key': 'test-key'}, json={"query": ""}).status_code == 400
 
+
+def test_investment_quotes_parses_price_timestamp_and_source(app, monkeypatch):
+    import json
+    from io import BytesIO
+    from app import capabilities
+    now = 1_800_000_000
+    payload = {"chart": {"result": [{"meta": {
+        "symbol": "AAPL", "longName": "Apple Inc.", "regularMarketPrice": 200.5,
+        "currency": "USD", "fullExchangeName": "NasdaqGS", "instrumentType": "EQUITY",
+        "regularMarketTime": now, "chartPreviousClose": 198.0,
+        "fiftyTwoWeekHigh": 210.0, "fiftyTwoWeekLow": 150.0,
+    }}], "error": None}}
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, n=-1): return json.dumps(payload).encode()
+    seen = {}
+    def fake_urlopen(req, timeout):
+        seen["url"] = req.full_url
+        seen["timeout"] = timeout
+        return FakeResponse()
+    monkeypatch.setattr(capabilities, "urlopen", fake_urlopen)
+    monkeypatch.setattr(capabilities.time, "time", lambda: now)
+    result = capabilities.investment_quotes(["aapl", "AAPL"])
+    assert len(result["quotes"]) == 1
+    quote = result["quotes"][0]
+    assert quote["price"] == 200.5
+    assert quote["market_timestamp_utc"] == "2027-01-15T08:00:00Z"
+    assert quote["stale"] is False
+    assert quote["source_url"].startswith("https://query1.finance.yahoo.com/")
+    assert "licensed market-data service" in result["limitations"][1]
+    assert seen["timeout"] == 10
+
+
+def test_investment_quotes_rejects_invalid_symbols_before_network(app, monkeypatch):
+    from app import capabilities
+    monkeypatch.setattr(capabilities, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network should not be called")))
+    with pytest.raises(ValueError): capabilities.investment_quotes(["AAPL;https://example.com"])
+    with pytest.raises(ValueError): capabilities.investment_quotes([])
+
+
+def test_investment_quotes_endpoint_requires_auth_and_validates_symbols(app, monkeypatch):
+    from app import capabilities
+    client = TestClient(app.app)
+    assert client.post('/v1/investment/quotes', json={"symbols": ["AAPL"]}).status_code == 401
+    monkeypatch.setattr(capabilities, "investment_quotes", lambda symbols: {"quotes": [], "errors": [], "provider": "test"})
+    response = client.post('/v1/investment/quotes', headers={'X-API-Key': 'test-key'}, json={"symbols": ["AAPL"]})
+    assert response.status_code == 200
+    assert response.json()["provider"] == "test"
+
 def test_image_generation_uses_openrouter_image_api_and_shared_key(app,monkeypatch):
     import json
     from io import BytesIO
