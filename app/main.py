@@ -122,6 +122,23 @@ def require_app_user(
     return {"id": "local", "email": "local@rz-agent"}
 
 
+def require_chat_user(
+    request: Request,
+    authorization: str = Header(default=""),
+    x_api_key: str = Header(default=""),
+):
+    """Allow a configured service key for chat only; preserve session/bearer auth elsewhere."""
+    if DATABASE_AUTH_ENABLED and API_KEY and x_api_key and hmac.compare_digest(x_api_key, API_KEY):
+        # Stable non-secret principal keeps service conversations separate from account sessions.
+        service_id = hashlib.sha256(API_KEY.encode("utf-8")).hexdigest()[:16]
+        return {
+            "id": f"service-{service_id}",
+            "email": "service@rz-agent",
+            "auth_type": "service_api_key",
+        }
+    return require_app_user(request, authorization, x_api_key)
+
+
 def require_mcp_user(request: Request, authorization: str = Header(default=""), x_api_key: str = Header(default="")):
     """Authenticate MCP clients using scoped bearer tokens; keep browser sessions intact."""
     if DATABASE_AUTH_ENABLED:
@@ -1480,7 +1497,7 @@ def agent_progress(session_id: str, current_user: dict = Depends(require_app_use
 
 
 @app.post("/v1/chat")
-def chat(request: ChatRequest, current_user: dict = Depends(require_app_user)):
+def chat(request: ChatRequest, current_user: dict = Depends(require_chat_user)):
     if not request.message:
         raise HTTPException(status_code=400, detail="message is required")
     prefix = f"{current_user['id']}:"
