@@ -42,3 +42,12 @@ def test_investment_research_routes_to_agent_tools():
 def test_opportunity_scanner_routes_to_agent_tools():
     assert should_use_agent_tools("Run the opportunity scanner on these ETFs")
     assert should_use_agent_tools("Scan investment opportunities in technology stocks")
+
+
+def test_explicit_investment_tool_request_routes_to_agent_tools():
+    assert should_use_agent_tools(
+        'Run mia_opportunity_scan for 3 U.S.-listed stocks. Use live quotes and source-backed research.'
+    )
+    assert should_use_agent_tools(
+        'Return candidates, quote timestamps, source links, key risks, and evidence quality.'
+    )
