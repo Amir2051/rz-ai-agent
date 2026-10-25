@@ -82,9 +82,10 @@ _EXPLICIT_TICKER_ALLOWLIST = (
 def extract_explicit_investment_tickers(message: str) -> list[str]:
     """Extract only recognized ticker symbols explicitly present in a user request."""
     text = str(message or "").upper()
-    found = []
+    positions = []
     for ticker in _EXPLICIT_TICKER_ALLOWLIST:
         pattern = r"(?<![A-Z0-9])" + re.escape(ticker) + r"(?![A-Z0-9])"
-        if re.search(pattern, text):
-            found.append(ticker)
-    return found
+        match = re.search(pattern, text)
+        if match:
+            positions.append((match.start(), ticker))
+    return [ticker for _, ticker in sorted(positions)]
