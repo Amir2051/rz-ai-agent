@@ -341,7 +341,7 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
 
     # Search accounting is explicit: unavailable searches are not counted as zero-result searches.
     search_calls = [item for item in calls if item["tool"] in {"osint_profile", "reputation_score", "darkweb_paste"}]
-    completed_searches = [item for item in search_calls if isinstance(item.get("result"), dict) and "candidate_result_count" in item["result"]]
+    completed_searches = [item for item in search_calls if item.get("status") in {"success", "no_data"} and isinstance(item.get("result"), dict) and "candidate_result_count" in item["result"]]
     search_metrics = {
         "searches_attempted": len(search_calls),
         "searches_with_candidate_counts": len(completed_searches),

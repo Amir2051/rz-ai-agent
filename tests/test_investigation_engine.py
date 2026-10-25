@@ -181,7 +181,9 @@ def test_search_metrics_distinguish_unavailable_from_zero_results(monkeypatch):
         if name == "dns_lookup":
             return {"status": "success", "source": "test_dns", "domain": value, "addresses": ["203.0.113.7"]}
         if name in {"osint_profile", "reputation_score", "darkweb_paste"}:
-            return {"status": "unavailable", "error": "search unavailable"}
+            # Reputation adapter can expose zero-valued metrics even when the underlying
+            # search failed; those values must not be counted as a completed search.
+            return {"status": "unavailable", "candidate_result_count": 0, "result_count": 0, "ignored_irrelevant_result_count": 0, "error": "search unavailable"}
         return {"status": "not_configured"}
     monkeypatch.setattr(engine, "run_tool", fake_tool)
     result = engine.run_investigation({"domain": "example.com"})
