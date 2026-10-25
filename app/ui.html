@@ -303,6 +303,112 @@ button:hover:not(:disabled){filter:brightness(1.08)}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 
+
+/* MIA // LIVING INTELLIGENCE CONSOLE — typography, atmosphere and dual-theme system */
+:root{
+ --mia-ink:#eaf7ff;--mia-muted:#8ca9bc;--mia-line:#23475a;
+ --mia-surface:#091521;--mia-surface-2:#0d1d2b;--mia-cyan:#65e6ff;
+ --mia-violet:#a7a0ff;--mia-glow:rgba(77,211,255,.17);
+ color-scheme:dark;
+}
+body{font-family:Inter,"Aptos","Segoe UI",system-ui,sans-serif!important;letter-spacing:.005em}
+.head h1{font-size:clamp(22px,2vw,30px)!important;font-weight:680!important;letter-spacing:-.045em!important;line-height:1.12!important}
+.head p{font-size:12px!important;line-height:1.65!important;letter-spacing:.01em!important}
+.eyebrow,.nav-kicker,.brand-tag,.head .status,.chathead h2,.chathead .tiny,.composer:before,.compose-row .tiny,.wrap:after{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace!important;letter-spacing:.12em!important}
+.layout{gap:16px!important;grid-template-columns:270px minmax(0,1fr)!important}
+.mia-sidebar{padding:14px!important;border-radius:8px!important;box-shadow:0 18px 70px #0003,inset 0 1px #d9f6ff09!important}
+.side-nav-item{padding:8px 10px!important;min-height:44px!important;border-radius:5px!important}
+.side-nav-item strong{font-size:12px!important;font-weight:620!important;letter-spacing:-.015em!important}
+.side-nav-item small{font-size:10px!important;letter-spacing:0!important;line-height:1.5!important}
+.side-nav-icon{border-radius:6px!important}
+.chat{border-radius:9px!important;position:relative!important;isolation:isolate;overflow:hidden!important}
+.chat:before{
+ content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.25;
+ background:radial-gradient(ellipse at 50% 0%,#1c6580 0%,transparent 54%),
+ repeating-linear-gradient(0deg,transparent 0 39px,#7ce8ff08 40px);
+}
+.chathead{min-height:56px!important;padding:14px 20px!important}
+.chathead h2{font-size:10px!important;font-weight:700!important}
+.chathead .tiny{font-size:10px!important;letter-spacing:.04em!important}
+.messages{padding:28px clamp(20px,4vw,72px)!important;gap:16px!important}
+.empty{max-width:600px!important}
+.empty:before{width:112px!important;height:112px!important;animation:mia-reactor-breathe 5s ease-in-out infinite, mia-reactor-spin 36s linear infinite!important}
+.empty strong{font-size:clamp(18px,2vw,24px)!important;line-height:1.4!important;letter-spacing:-.035em!important;font-weight:650!important}
+.empty p{font-family:Inter,"Segoe UI",system-ui,sans-serif!important;font-size:13px!important;line-height:1.85!important;letter-spacing:0!important;color:var(--mia-muted)!important}
+.welcome-prompts button{border-radius:7px!important;font-size:12px!important;font-weight:550!important;padding:11px 13px!important;background:#0c1c29!important;border:1px solid #25475a!important;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease!important}
+.welcome-prompts button:hover{transform:translateY(-2px)!important;border-color:#58dff7!important;box-shadow:0 8px 28px #43d5ff12!important}
+.bubble{font-family:Inter,"Aptos","Segoe UI",system-ui,sans-serif!important;font-size:14px!important;line-height:1.85!important;letter-spacing:.002em!important;border-radius:7px!important;padding:15px 18px!important}
+.user{background:linear-gradient(125deg,#102c3d,#0d202e)!important;border-color:#28556b!important}
+.assistant{background:linear-gradient(125deg,#0c1b28,#0a1722)!important;border-color:#203d50!important}
+.composer{padding:17px 20px 18px!important}
+.composer:before{font-size:9px!important;margin-bottom:10px!important;color:#6c9cb1!important}
+.voice-row{gap:10px!important;font-size:11px!important}
+.compose-row textarea{font-family:Inter,"Aptos","Segoe UI",system-ui,sans-serif!important;font-size:14px!important;line-height:1.65!important;padding:14px 15px!important;border-radius:7px!important}
+.compose-row #send{border-radius:7px!important;font-family:Inter,system-ui,sans-serif!important;font-size:12px!important;letter-spacing:.015em!important;font-weight:700!important}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--mia-cyan)!important;outline-offset:2px!important}
+.mia-theme-toggle{
+ display:inline-flex;align-items:center;gap:8px;justify-content:center;
+ min-height:36px;padding:0 12px;border:1px solid #2b5368;border-radius:6px;
+ background:linear-gradient(135deg,#102b3b,#0b1824);color:#d9f8ff;
+ font:600 11px/1 Inter,system-ui,sans-serif;white-space:nowrap;cursor:pointer;
+ box-shadow:inset 0 1px #dffaff0b,0 0 18px #48d7ff0a;
+}
+.mia-theme-toggle .theme-glyph{font-size:15px;color:#77eaff}
+.mia-theme-toggle:hover{border-color:#69e5ff;box-shadow:0 0 24px #56dfff1b}
+.mia-theme-toggle:focus-visible{outline:2px solid var(--mia-cyan);outline-offset:3px}
+@keyframes mia-reactor-breathe{0%,100%{filter:brightness(.92);box-shadow:0 0 30px #56e0ff12,inset 0 0 30px #56e0ff12}50%{filter:brightness(1.22);box-shadow:0 0 48px #56e0ff32,inset 0 0 38px #56e0ff20}}
+@keyframes mia-reactor-spin{from{rotate:0deg}to{rotate:360deg}}
+/* Light mode is a full palette, not an inverted filter. */
+html[data-mia-theme="light"]{color-scheme:light;background:#edf4f9!important}
+html[data-mia-theme="light"] body{
+ color:#1c3344!important;background:
+ radial-gradient(ellipse at 50% -35%,#d1eff7 0%,transparent 60%),
+ linear-gradient(180deg,#f4f8fc,#eaf1f7)!important;
+}
+html[data-mia-theme="light"] body:before{opacity:.42;background-image:linear-gradient(#167e9c0b 1px,transparent 1px),linear-gradient(90deg,#167e9c0b 1px,transparent 1px)}
+html[data-mia-theme="light"] .head{border-bottom-color:#c5d8e3!important}
+html[data-mia-theme="light"] .head h1{color:#173448!important}
+html[data-mia-theme="light"] .head p{color:#617d90!important}
+html[data-mia-theme="light"] .eyebrow{color:#147b99!important}
+html[data-mia-theme="light"] .brand-tag{background:#f7fbfe!important;color:#3d6579!important;border-color:#c6dbe6!important}
+html[data-mia-theme="light"] .head .status{background:#f8fbfe!important;border-color:#c7dce7!important;color:#47677a!important}
+html[data-mia-theme="light"] .mia-sidebar{background:linear-gradient(180deg,#ffffffed,#f2f7fbf7)!important;border-color:#c9dbe5!important;box-shadow:0 14px 45px #3e698318!important}
+html[data-mia-theme="light"] .nav-kicker{color:#4d8ba1!important}
+html[data-mia-theme="light"] .side-nav-item{color:#496577!important}
+html[data-mia-theme="light"] .side-nav-item:hover{background:#e7f3f8!important;border-color:#c4e2ec!important;color:#183d51!important}
+html[data-mia-theme="light"] .side-nav-item.is-active{background:linear-gradient(90deg,#d9f2f9,#eef9fc)!important;border-color:#a6d7e6!important;box-shadow:inset 2px 0 #149fc1!important;color:#163e52!important}
+html[data-mia-theme="light"] .side-nav-icon{background:#e9f4f8!important;border-color:#c9e0e9!important;color:#187f9d!important}
+html[data-mia-theme="light"] .side-nav-item small{color:#6b8798!important}
+html[data-mia-theme="light"] .sidebar-divider{background:#d5e3eb!important}
+html[data-mia-theme="light"] #accountConnect h2,html[data-mia-theme="light"] .mia-sidebar>h2{color:#317e98!important}
+html[data-mia-theme="light"] .mia-sidebar input,html[data-mia-theme="light"] .mia-sidebar textarea,html[data-mia-theme="light"] .mia-sidebar select{background:#fff!important;border-color:#c6dbe5!important;color:#1d3849!important}
+html[data-mia-theme="light"] .mia-sidebar .tool-card{background:#f7fbfe!important;border-color:#d4e3eb!important}
+html[data-mia-theme="light"] .chat{background:linear-gradient(180deg,#fffffffa,#f5f9fcfa)!important;border-color:#c9dce7!important;box-shadow:0 18px 60px #42667d16,inset 0 1px #fff!important}
+html[data-mia-theme="light"] .chat:before{opacity:.2;background:radial-gradient(ellipse at 50% 0%,#a9e2ef 0%,transparent 54%),repeating-linear-gradient(0deg,transparent 0 39px,#167e9c08 40px)}
+html[data-mia-theme="light"] .chathead{background:linear-gradient(90deg,#f0f7fb,#f8fbfd)!important;border-bottom-color:#d4e4ec!important}
+html[data-mia-theme="light"] .chathead h2{color:#315f75!important}
+html[data-mia-theme="light"] .chathead .tiny{color:#638195!important}
+html[data-mia-theme="light"] .empty strong{color:#18394d!important}
+html[data-mia-theme="light"] .empty p{color:#688497!important}
+html[data-mia-theme="light"] .welcome-prompts button{background:#f7fbfd!important;border-color:#cddfe8!important;color:#2b566c!important}
+html[data-mia-theme="light"] .welcome-prompts button:hover{border-color:#62b9d1!important;box-shadow:0 8px 28px #3c91ad14!important}
+html[data-mia-theme="light"] .bubble{color:#263e50!important}
+html[data-mia-theme="light"] .user{background:linear-gradient(125deg,#e0f5fb,#f0fbfe)!important;border-color:#addbe8!important;border-right-color:#1aa3c6!important}
+html[data-mia-theme="light"] .assistant{background:linear-gradient(125deg,#f5f9fc,#fff)!important;border-color:#d4e2eb!important;border-left-color:#9586ed!important}
+html[data-mia-theme="light"] .composer{background:linear-gradient(90deg,#f0f6fa,#f8fbfd)!important;border-top-color:#d0e1ea!important}
+html[data-mia-theme="light"] .composer:before{color:#60889a!important}
+html[data-mia-theme="light"] .compose-row textarea{background:#fff!important;border-color:#bfd6e2!important;color:#213e50!important}
+html[data-mia-theme="light"] .compose-row #send{background:linear-gradient(120deg,#187d9c,#27b9d3)!important;color:white!important}
+html[data-mia-theme="light"] .quickbar button{background:#f8fbfd!important;border-color:#cddfe8!important;color:#386d83!important}
+html[data-mia-theme="light"] .mia-theme-toggle{background:linear-gradient(135deg,#fff,#e8f4f9);color:#24495d;border-color:#bed8e4;box-shadow:0 2px 10px #315e7410}
+html[data-mia-theme="light"] .mia-theme-toggle .theme-glyph{color:#1688a9}
+html[data-mia-theme="light"] .wrap:after{background:#f6fafcf2!important;border-top-color:#c8dce6!important;color:#5b7d8f!important;box-shadow:0 -8px 30px #42667d12!important}
+html[data-mia-theme="light"] .mia-sidebar .hint,html[data-mia-theme="light"] .mia-sidebar label{color:#526f81!important}
+html[data-mia-theme="light"] .mia-sidebar button.secondary{background:#f6fafc!important;color:#31566b!important;border-color:#c5dbe6!important}
+@media(max-width:980px){.layout{grid-template-columns:235px minmax(0,1fr)!important}}
+@media(max-width:700px){.layout{grid-template-columns:minmax(0,1fr)!important}.head h1{font-size:21px!important}.empty p{font-size:12px!important}.bubble{font-size:13px!important;line-height:1.8!important}.mia-theme-toggle{min-height:32px;padding:0 9px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){.empty:before{animation:none!important}}
+
 </style></head><body><main class="wrap"><header class="head"><div class="logo" aria-label="MIA assistant">MIA</div><div><div class="eyebrow">PERSONAL INTELLIGENCE SYSTEM</div><h1>MIA <span class="brand-tag">RZ AGENT</span></h1><p>Your personal intelligence partner · curious, capable, and ready to work</p></div><a class="brand-tag" href="/settings/mcp" style="text-decoration:none;padding:8px 10px">RZ MCP + PLUGINS ↗</a><a class="brand-tag" href="/tools" style="text-decoration:none;padding:8px 10px">WEB TOOL CENTER ↗</a><button class="secondary" id="installPwa" type="button" hidden title="Install RZ-AI on this device">＋ Install app</button><button class="nav-toggle secondary" id="miaNavToggle" type="button" aria-expanded="true" aria-controls="miaSidebar" title="Collapse sidebar">☰</button><div class="status"><span class="dot"></span><span id="status">API page loaded</span></div></header>
 <div class="layout" id="miaAppLayout"><aside class="panel mia-sidebar" id="miaSidebar"><nav class="mia-side-nav" aria-label="Main navigation"><div class="nav-kicker">WORKSPACE</div><button type="button" class="side-nav-item is-active" data-mia-nav="chat"><span class="side-nav-icon">⌂</span><span><strong>Command center</strong><small>Chat & live voice</small></span><span class="nav-arrow">↗</span></button><button type="button" class="side-nav-item" data-mia-nav="creator"><span class="side-nav-icon">✎</span><span><strong>Creator studio</strong><small>Projects & drafts</small></span></button><button type="button" class="side-nav-item" data-mia-nav="tasks"><span class="side-nav-icon">☑</span><span><strong>Task tracker</strong><small>Plans & progress</small></span></button><div class="nav-kicker">INTELLIGENCE</div><button type="button" class="side-nav-item" data-mia-nav="research"><span class="side-nav-icon">⌕</span><span><strong>Research</strong><small>Sources & documents</small></span></button><button type="button" class="side-nav-item" data-mia-nav="memory"><span class="side-nav-icon">◈</span><span><strong>Memory</strong><small>Saved context</small></span></button><a class="side-nav-item side-nav-link" href="/tools"><span class="side-nav-icon">▦</span><span><strong>Tool center</strong><small>Integrations & tools</small></span><span class="nav-arrow">↗</span></a><a class="side-nav-item side-nav-link" href="/skills"><span class="side-nav-icon">✧</span><span><strong>Skills & knowledge</strong><small>RZ methods & capabilities</small></span><span class="nav-arrow">↗</span></a><a class="side-nav-item side-nav-link" href="/settings/mcp"><span class="side-nav-icon">⌘</span><span><strong>MCP & plugins</strong><small>Connected capabilities</small></span><span class="nav-arrow">↗</span></a><div class="nav-kicker">PREFERENCES</div><button type="button" class="side-nav-item" data-mia-nav="customize"><span class="side-nav-icon">⚙</span><span><strong>Customize MIA</strong><small>Tone & language</small></span></button><button type="button" class="side-nav-item" data-mia-nav="account"><span class="side-nav-icon">◎</span><span><strong>Account & security</strong><small>Sign in & connection</small></span></button></nav><div class="sidebar-divider"></div><section id="accountConnect"><h2>ACCOUNT / CONNECT</h2><div id="accountFields" hidden><p class="hint">Create an independent RZ Agent account or sign in. Passwords are hashed on the server.</p><label for="accountEmail">Email</label><input id="accountEmail" type="email" autocomplete="email" placeholder="you@example.com"><label for="accountPassword">Password (12+ characters)</label><input id="accountPassword" type="password" autocomplete="current-password" minlength="12" maxlength="256" placeholder="At least 12 characters"><button id="loginAccount" class="secondary full" type="button">Sign in</button><button id="registerAccount" class="secondary full" type="button">Create account</button><button id="logoutAccount" class="secondary full" type="button" hidden>Sign out</button></div><div id="apiKeyFields"><p class="hint">Local mode: paste the RZ_API_KEY value from your .env file. The key stays in this page memory only.</p><label for="apiKey">RZ API key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Paste API key"><button id="toggleKey" class="secondary full" type="button">Show / hide key</button><button id="check" class="secondary full" type="button">Test connection</button></div><p class="hint" id="connection">Checking authentication mode…</p></section><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><h2>SESSION</h2><p class="hint">Messages use a temporary session for conversation context.</p><button id="newChat" class="secondary full" type="button">New conversation</button>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><details id="miaPreferences"><summary style="cursor:pointer;font-weight:700">CUSTOMIZE MIA</summary><p class="hint">Personalize MIA's tone and response style for this account. These settings do not replace MIA's existing tools or core behavior.</p><label for="miaPersonality">Personality</label><select id="miaPersonality"><option value="balanced">Balanced</option><option value="friendly">Friendly & encouraging</option><option value="professional">Professional</option><option value="concise">Concise</option><option value="creative">Creative</option></select><label for="miaLength">Response detail</label><select id="miaLength"><option value="concise">Concise</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select><label for="miaLanguage">Preferred language</label><select id="miaLanguage"><option value="auto">Match conversation</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="pt">Portuguese</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ur">Urdu</option><option value="ru">Russian</option><option value="ja">Japanese</option><option value="ko">Korean</option></select><label for="miaInstructions">Additional instructions (optional)</label><textarea id="miaInstructions" rows="4" maxlength="1200" placeholder="For example: use practical examples and explain technical terms."></textarea><button id="loadMiaPreferences" class="secondary full" type="button">Load saved preferences</button><button id="saveMiaPreferences" class="full" type="button">Save MIA preferences</button><p id="miaPreferencesStatus" class="tiny" role="status"></p></details><p class="tiny">API docs: <a class="link" href="/docs">/docs</a> · MCP: <a class="link" href="/mcp">/mcp</a> · Health: <a class="link" href="/health">/health</a></p>
@@ -529,4 +635,35 @@ $('newChat').onclick=()=>{sessionId=null;$('messages').replaceChildren();const e
 (()=>{const layout=document.getElementById('miaAppLayout'),toggle=document.getElementById('miaNavToggle');if(!layout||!toggle)return;toggle.addEventListener('click',()=>{const collapsed=layout.classList.toggle('is-collapsed');toggle.setAttribute('aria-expanded',String(!collapsed));toggle.title=collapsed?'Expand sidebar':'Collapse sidebar'});const navItems=[...document.querySelectorAll('[data-mia-nav]')];function activate(key){navItems.forEach(n=>{const active=n.dataset.miaNav===key;n.classList.toggle('is-active',active);if(active)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current')})}function trigger(selector){const el=document.querySelector(selector);if(el)el.click();else document.querySelector(selector)?.scrollIntoView({behavior:'smooth',block:'start'})}navItems.forEach(item=>item.addEventListener('click',()=>{const key=item.dataset.miaNav;activate(key);if(key==='chat'){document.getElementById('chatPanel')?.scrollIntoView({behavior:'smooth',block:'start'});document.getElementById('message')?.focus({preventScroll:true})}else if(key==='creator'){document.getElementById('creatorLaunch')?.click();document.getElementById('creatorWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'})}else if(key==='tasks'){trigger('[data-capability="tasks"]')}else if(key==='research'){trigger('[data-capability="research"]')}else if(key==='memory'){trigger('[data-capability="memory-list"]')}else if(key==='customize'){const d=document.getElementById('miaPreferences');if(d)d.open=true;d?.scrollIntoView({behavior:'smooth',block:'center'})}else if(key==='account'){document.getElementById('accountConnect')?.scrollIntoView({behavior:'smooth',block:'start'});document.getElementById('accountEmail')?.focus({preventScroll:true})}}));})();
 
 (()=>{let installPrompt=null;const install=document.getElementById('installPwa');window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;if(install)install.hidden=false});install?.addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;install.hidden=true});window.addEventListener('appinstalled',()=>{if(install)install.hidden=true});document.querySelectorAll('[data-starter]').forEach(button=>button.addEventListener('click',()=>{const field=document.getElementById('message');if(!field)return;field.value=button.dataset.starter;field.focus();field.setSelectionRange(field.value.length,field.value.length)}));if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}))}})();
-</script></body></html>
+</script>
+<script>
+(()=> {
+ const root=document.documentElement, key='mia-rz-theme';
+ const getSaved=()=>{try{return localStorage.getItem(key)}catch{return null}};
+ function applyTheme(theme){
+   const value=theme==='light'?'light':'dark';
+   root.setAttribute('data-mia-theme',value);
+   const btn=document.getElementById('miaThemeToggle');
+   if(btn){
+     btn.setAttribute('aria-pressed',String(value==='light'));
+     btn.setAttribute('aria-label',value==='dark'?'Switch to light theme':'Switch to dark theme');
+     btn.innerHTML=value==='dark'?'<span class="theme-glyph" aria-hidden="true">☼</span><span>Light mode</span>':'<span class="theme-glyph" aria-hidden="true">◐</span><span>Dark mode</span>';
+   }
+   try{localStorage.setItem(key,value)}catch{}
+ }
+ applyTheme(getSaved()||'dark');
+ function mount(){
+   const head=document.querySelector('.head');
+   if(!head||document.getElementById('miaThemeToggle'))return;
+   const btn=document.createElement('button');
+   btn.type='button';btn.id='miaThemeToggle';btn.className='mia-theme-toggle';
+   btn.addEventListener('click',()=>applyTheme(root.getAttribute('data-mia-theme')==='dark'?'light':'dark'));
+   const install=document.getElementById('installPwa');
+   if(install&&install.parentNode===head)head.insertBefore(btn,install);
+   else head.appendChild(btn);
+   applyTheme(root.getAttribute('data-mia-theme')||'dark');
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+})();
+</script>
+</body></html>
