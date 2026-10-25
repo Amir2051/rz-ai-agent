@@ -21,6 +21,9 @@ _EXPLICIT_AGENT_CUES = (
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
+    # Explicit tool/API names and output requirements must route to the agent loop too.
+    "mia_opportunity_scan", "mia_market_quotes", "live quotes", "quote timestamps",
+    "source-backed research", "source backed research", "investment scan",
 )
 
 # Natural requests that imply a persistent or multi-step workflow, not a simple answer.
@@ -43,3 +46,46 @@ def should_use_agent_tools(message: str) -> bool:
     if any(cue in text for cue in _EXPLICIT_AGENT_CUES):
         return True
     return any(re.search(pattern, text) for pattern in _ACTION_PATTERNS)
+
+
+
+def requires_investment_candidate_discovery(message: str) -> bool:
+    """Identify broad investment scans that need candidate discovery before comparison."""
+    text = re.sub(r"\s+", " ", str(message or "").casefold()).strip()
+    if not text:
+        return False
+    broad_scan = any(phrase in text for phrase in (
+        "find investment opportunities", "discover investment opportunities",
+        "scan investment opportunities", "identify investment opportunities",
+        "mia_opportunity_scan", "opportunity scanner", "stocks to invest in",
+        "etfs to invest in", "3 u.s.-listed stocks", "three u.s.-listed stocks",
+        "u.s.-listed stocks", "us-listed stocks",
+    ))
+    if not broad_scan:
+        return False
+    if re.search(r"\b(?:between|compare)\b.{0,100}\b(?:and|vs\.?|versus)\b", text):
+        return False
+    if re.search(r"\b(?:aapl|msft|nvda|tsla|amzn|googl|goog|meta|brk\.?b|spy|qqq|voo|vti)\b", text):
+        return False
+    return True
+
+
+
+_EXPLICIT_TICKER_ALLOWLIST = (
+    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "GOOG", "META",
+    "BRK.B", "SPY", "QQQ", "VOO", "VTI", "AMD", "AVGO", "SMCI",
+    "PLTR", "NFLX", "ORCL", "CRM", "COST", "WMT", "JPM", "LLY",
+    "XOM", "CVX", "UNH", "NVO", "COIN", "INTC", "MU", "TSM",
+)
+
+
+def extract_explicit_investment_tickers(message: str) -> list[str]:
+    """Extract only recognized ticker symbols explicitly present in a user request."""
+    text = str(message or "").upper()
+    positions = []
+    for ticker in _EXPLICIT_TICKER_ALLOWLIST:
+        pattern = r"(?<![A-Z0-9])" + re.escape(ticker) + r"(?![A-Z0-9])"
+        match = re.search(pattern, text)
+        if match:
+            positions.append((match.start(), ticker))
+    return [ticker for _, ticker in sorted(positions)]
