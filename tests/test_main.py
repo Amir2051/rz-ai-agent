@@ -990,7 +990,8 @@ def test_create_agent_session_rejects_missing_user_id(app):
 def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypatch):
     # Simulate production/account-auth mode without opening a database connection.
     app.DATABASE_AUTH_ENABLED = True
-    app.API_KEY = "service-test-key"
+    app.API_KEY = "legacy-existing-key"
+    app.SERVICE_API_KEY = "service-test-key"
 
     def reject_session(_request):
         raise HTTPException(status_code=401, detail="Please sign in")
