@@ -121,6 +121,12 @@ def require_app_user(
 ):
     """Authenticate browser sessions and scoped terminal/API clients safely."""
     if DATABASE_AUTH_ENABLED:
+        # Reusable service-to-service auth: a trusted application may authenticate with a
+        # shared key in the X-Api-Key header, matched against RZ_API_KEY. This is only
+        # active when RZ_API_KEY is configured, and never weakens browser session or
+        # scoped bearer-token auth below.
+        if API_KEY and x_api_key and hmac.compare_digest(x_api_key, API_KEY):
+            return {"id": "service", "email": "service@rz-agent", "auth_type": "api_key"}
         if authorization:
             from app.auth import get_user_from_bearer
             return get_user_from_bearer(authorization, required_scope="mcp:call")
