@@ -27,11 +27,24 @@ The hosted default is `nvidia/nemotron-3.5-lightning:free`, with `openrouter/fre
 
 The service binds to loopback in the example command so it is not exposed to the network by default.
 
-Hermes is an optional provider/fallback configured with `HERMES_API_KEY` and
-`HERMES_MODEL` (default `upstage/solar-mini4:free`). Use a valid server-side Nous
-inference API key; do not copy a short-lived CLI OAuth/agent token into Render.
-When configured, provider order is OpenRouter, Hermes, then Ollama, skipping any
-provider that is not configured.
+Hermes is an optional provider/fallback using Nous Portal OAuth. Configure
+`NOUS_OAUTH_STATE_JSON` and `NOUS_OAUTH_ENCRYPTION_KEY` as Render secrets, with
+`DATABASE_URL` pointing to the service's persistent Postgres database. The JSON
+bootstrap value contains the OAuth state exported from the official Hermes CLI
+auth store (at minimum `refresh_token` and `client_id`; include `access_token`,
+`scope`, and expiry metadata when present). Never commit or log this JSON.
+Generate a Fernet key locally with Python's
+`from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())`
+and put the output directly into Render's secret environment variable. MIA-RZ
+encrypts the credential state at rest in Postgres, refreshes before expiry, and
+persists rotated refresh tokens. Once stored, the database copy takes precedence
+over the bootstrap environment value. Do not rotate or delete the encryption key
+while the stored record exists, or it can no longer be decrypted.
+
+Keep the Hermes OAuth state private and restrict access to Render secrets and the
+database. Hermes remains disabled until the database URL, bootstrap state, and
+encryption key are configured. Provider order is OpenRouter, Hermes, then Ollama,
+skipping providers that are not configured.
 
 An optional Ollama fallback can be enabled with `OLLAMA_BASE_URL` and
 `OLLAMA_MODEL` (default `qwen3:1.7b`). If the endpoint requires authentication, set
@@ -50,7 +63,7 @@ analysis/research requests. An explicit `model` in a chat request takes
 precedence. If either optional variable is empty, requests in that category
 continue to use the default model.
 
-Cartesia voice synthesis uses `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`, `CARTESIA_TTS_MODEL`, and `CARTESIA_VERSION`; keep the API key in an ignored local `.env` and the hosted service secret store, never in source control. The live transcription connection remains separate from MIA’s chat model. OpenRouter requests read `provider.zdr` and `provider.allow_fallbacks` from the corresponding environment variables. Set `OPENROUTER_ZDR=true` only if the selected model has an available endpoint that meets your ZDR requirement. Keep model IDs compatible with the provider allowlist configured in your OpenRouter account. If a valid Hermes key is configured, Hermes is attempted after an OpenRouter failure; configured Ollama is the next fallback.
+Cartesia voice synthesis uses `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`, `CARTESIA_TTS_MODEL`, and `CARTESIA_VERSION`; keep the API key in an ignored local `.env` and the hosted service secret store, never in source control. The live transcription connection remains separate from MIA’s chat model. OpenRouter requests read `provider.zdr` and `provider.allow_fallbacks` from the corresponding environment variables. Set `OPENROUTER_ZDR=true` only if the selected model has an available endpoint that meets your ZDR requirement. Keep model IDs compatible with the provider allowlist configured in your OpenRouter account. If valid Nous Portal OAuth state is configured, Hermes is attempted after an OpenRouter failure; configured Ollama is the next fallback.
 
 
 ## Runtime capabilities and session cleanup
