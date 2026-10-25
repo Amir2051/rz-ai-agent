@@ -995,7 +995,7 @@ def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypat
     def reject_session(_request):
         raise HTTPException(status_code=401, detail="Please sign in")
 
-    monkeypatch.setattr(app, "_get_database_user", reject_session)
+    monkeypatch.setattr(app, "_get_database_user", reject_session, raising=False)
 
     service_user = app.require_chat_user(object(), "", "service-test-key")
     assert service_user["auth_type"] == "service_api_key"
