@@ -68,3 +68,23 @@ def requires_investment_candidate_discovery(message: str) -> bool:
     if re.search(r"\b(?:aapl|msft|nvda|tsla|amzn|googl|goog|meta|brk\.?b|spy|qqq|voo|vti)\b", text):
         return False
     return True
+
+
+
+_EXPLICIT_TICKER_ALLOWLIST = (
+    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "GOOG", "META",
+    "BRK.B", "SPY", "QQQ", "VOO", "VTI", "AMD", "AVGO", "SMCI",
+    "PLTR", "NFLX", "ORCL", "CRM", "COST", "WMT", "JPM", "LLY",
+    "XOM", "CVX", "UNH", "NVO", "COIN", "INTC", "MU", "TSM",
+)
+
+
+def extract_explicit_investment_tickers(message: str) -> list[str]:
+    """Extract only recognized ticker symbols explicitly present in a user request."""
+    text = str(message or "").upper()
+    found = []
+    for ticker in _EXPLICIT_TICKER_ALLOWLIST:
+        pattern = r"(?<![A-Z0-9])" + re.escape(ticker) + r"(?![A-Z0-9])"
+        if re.search(pattern, text):
+            found.append(ticker)
+    return found
