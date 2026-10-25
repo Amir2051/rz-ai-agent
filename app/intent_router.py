@@ -46,3 +46,25 @@ def should_use_agent_tools(message: str) -> bool:
     if any(cue in text for cue in _EXPLICIT_AGENT_CUES):
         return True
     return any(re.search(pattern, text) for pattern in _ACTION_PATTERNS)
+
+
+
+def requires_investment_candidate_discovery(message: str) -> bool:
+    """Identify broad investment scans that need candidate discovery before comparison."""
+    text = re.sub(r"\s+", " ", str(message or "").casefold()).strip()
+    if not text:
+        return False
+    broad_scan = any(phrase in text for phrase in (
+        "find investment opportunities", "discover investment opportunities",
+        "scan investment opportunities", "identify investment opportunities",
+        "mia_opportunity_scan", "opportunity scanner", "stocks to invest in",
+        "etfs to invest in", "3 u.s.-listed stocks", "three u.s.-listed stocks",
+        "u.s.-listed stocks", "us-listed stocks",
+    ))
+    if not broad_scan:
+        return False
+    if re.search(r"\b(?:between|compare)\b.{0,100}\b(?:and|vs\.?|versus)\b", text):
+        return False
+    if re.search(r"\b(?:aapl|msft|nvda|tsla|amzn|googl|goog|meta|brk\.?b|spy|qqq|voo|vti)\b", text):
+        return False
+    return True
