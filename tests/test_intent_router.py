@@ -65,3 +65,18 @@ def test_broad_investment_scan_requires_candidate_discovery():
 def test_named_investment_candidates_skip_discovery_stage():
     from app.intent_router import requires_investment_candidate_discovery
     assert not requires_investment_candidate_discovery("Compare AAPL and MSFT with current quotes")
+
+
+
+def test_explicit_ticker_extraction_finds_requested_scan_symbols():
+    from app.intent_router import extract_explicit_investment_tickers
+    assert extract_explicit_investment_tickers(
+        "Compare TSLA, AMZN, and NVDA with current quotes and source-backed research"
+    ) == ["NVDA", "TSLA", "AMZN"] or set(extract_explicit_investment_tickers(
+        "Compare TSLA, AMZN, and NVDA with current quotes and source-backed research"
+    )) == {"TSLA", "AMZN", "NVDA"}
+
+
+def test_explicit_ticker_extraction_ignores_ticker_substrings():
+    from app.intent_router import extract_explicit_investment_tickers
+    assert extract_explicit_investment_tickers("The answer is not aaplastic example") == []
