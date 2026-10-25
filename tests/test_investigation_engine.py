@@ -95,3 +95,79 @@ def test_public_paste_search_failure_is_reported_as_unavailable(monkeypatch):
     result = engine.run_tool("darkweb_paste", "domain", "example.com")
     assert result["status"] == "unavailable"
     assert "BRAVE_SEARCH_API_KEY" in result["error"]
+
+
+def test_public_search_discards_unrelated_results(monkeypatch):
+    monkeypatch.setattr(engine, "_search", lambda *a, **k: {
+        "source": "brave_search",
+        "results": [
+            {"title": "ADMIN FINDER - Pastebin.com", "url": "https://pastebin.com/abc", "snippet": "Find admin pages for websites."},
+            {"title": "Example domain reference", "url": "https://docs.example.org/guide", "snippet": "A generic example with no target mention."},
+        ],
+    })
+    result = engine.run_tool("darkweb_paste", "domain", "example.com")
+    assert result["status"] == "no_data"
+    assert result["result_count"] == 0
+    assert result["candidate_result_count"] == 2
+    assert result["ignored_irrelevant_result_count"] == 2
+    assert result["results"] == []
+
+
+def test_public_search_keeps_direct_indicator_match(monkeypatch):
+    monkeypatch.setattr(engine, "_search", lambda *a, **k: {
+        "source": "brave_search",
+        "results": [
+            {"title": "A discussion mentioning example.com", "url": "https://pastebin.com/abc", "snippet": "The indicator example.com appears here."},
+            {"title": "Unrelated admin finder", "url": "https://pastebin.com/def", "snippet": "Generic instructions only."},
+        ],
+    })
+    result = engine.run_tool("darkweb_paste", "domain", "example.com")
+    assert result["status"] == "success"
+    assert result["result_count"] == 1
+    assert "example.com" in result["results"][0]["snippet"]
+    assert result["ignored_irrelevant_result_count"] == 1
+
+
+def test_reserved_example_domain_is_contextual_not_risk_evidence(monkeypatch):
+    def fake_tool(name, kind, value):
+        if name == "dns_lookup":
+            return {"status": "success", "source": "test_dns", "domain": value, "addresses": ["203.0.113.7"]}
+        return {"status": "not_configured", "required_env": ["TEST_KEY"]}
+    monkeypatch.setattr(engine, "run_tool", fake_tool)
+    result = engine.run_investigation({"domain": "example.com"})
+    assert result["findings"]
+    assert all(item["type"] == "contextual_information" for item in result["findings"])
+    assert all(item["evidence_relevance"] == "contextual_only" for item in result["findings"])
+    assert all(item["confidence_level"] == "low" for item in result["findings"])
+    assert all("confidence" not in item for item in result["findings"])
+    risk_stage = next(phase for phase in result["phases"] if phase["phase"] == 5)
+    assert risk_stage["risk_level"] == "undetermined"
+    assert risk_stage["contextual_findings"] == len(result["findings"])
+
+
+def test_osint_filters_results_without_target_match(monkeypatch):
+    monkeypatch.setattr(engine, "_search", lambda *a, **k: {
+        "source": "brave_search",
+        "results": [
+            {"title": "example.com - Wikipedia", "url": "https://en.wikipedia.org/wiki/Example.com", "snippet": "Documentation domain example.com."},
+            {"title": "DNS terminology", "url": "https://example.net/dns", "snippet": "A generic article about DNS."},
+        ],
+    })
+    result = engine.run_tool("osint_profile", "domain", "example.com")
+    assert result["status"] == "success"
+    assert result["result_count"] == 1
+    assert result["ignored_irrelevant_result_count"] == 1
+
+
+def test_domain_relevance_gate_rejects_lookalike_domain(monkeypatch):
+    monkeypatch.setattr(engine, "_search", lambda *a, **k: {
+        "source": "brave_search",
+        "results": [
+            {"title": "Unrelated lookalike", "url": "https://notexample.com.evil/path", "snippet": "No exact target."},
+            {"title": "Actual subdomain", "url": "https://status.example.com/", "snippet": "Status page."},
+        ],
+    })
+    result = engine.run_tool("osint_profile", "domain", "example.com")
+    assert result["result_count"] == 1
+    assert result["results"][0]["title"] == "Actual subdomain"
+    assert result["ignored_irrelevant_result_count"] == 1
