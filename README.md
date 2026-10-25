@@ -27,13 +27,17 @@ The hosted default is `nvidia/nemotron-3.5-lightning:free`, with `openrouter/fre
 
 The service binds to loopback in the example command so it is not exposed to the network by default.
 
+Hermes is an optional provider/fallback configured with `HERMES_API_KEY` and
+`HERMES_MODEL` (default `upstage/solar-mini4:free`). Use a valid server-side Nous
+inference API key; do not copy a short-lived CLI OAuth/agent token into Render.
+When configured, provider order is OpenRouter, Hermes, then Ollama, skipping any
+provider that is not configured.
+
 An optional Ollama fallback can be enabled with `OLLAMA_BASE_URL` and
-`OLLAMA_MODEL` (default `qwen3:1.7b`). It uses Ollama's native `/api/chat` API
-and only runs after the primary provider fails or returns no usable text. The
-prompt is sent to the configured Ollama endpoint, not OpenRouter. A hosted
-Render service cannot reach `127.0.0.1` on a user's Kali computer; hosted use
-requires a secure, authenticated private connection. Do not expose port 11434
-publicly.
+`OLLAMA_MODEL` (default `qwen3:1.7b`). If the endpoint requires authentication, set
+`OLLAMA_API_KEY`; it is sent only as a server-side Bearer header. A hosted Render
+service cannot reach `127.0.0.1` on a user's Kali computer; hosted use requires a
+secure, authenticated private connection. Do not expose port 11434 publicly.
 
 
 ## Optional task-aware model routing
@@ -46,7 +50,7 @@ analysis/research requests. An explicit `model` in a chat request takes
 precedence. If either optional variable is empty, requests in that category
 continue to use the default model.
 
-Cartesia voice synthesis uses `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`, `CARTESIA_TTS_MODEL`, and `CARTESIA_VERSION`; keep the API key in an ignored local `.env` and the hosted service secret store, never in source control. The live transcription connection remains separate from MIA’s chat model. OpenRouter requests read `provider.zdr` and `provider.allow_fallbacks` from the corresponding environment variables. Set `OPENROUTER_ZDR=true` only if the selected model has an available endpoint that meets your ZDR requirement. Keep model IDs compatible with the provider allowlist configured in your OpenRouter account. The app does not silently switch to Hermes after an OpenRouter failure; it returns a clear error instead.
+Cartesia voice synthesis uses `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`, `CARTESIA_TTS_MODEL`, and `CARTESIA_VERSION`; keep the API key in an ignored local `.env` and the hosted service secret store, never in source control. The live transcription connection remains separate from MIA’s chat model. OpenRouter requests read `provider.zdr` and `provider.allow_fallbacks` from the corresponding environment variables. Set `OPENROUTER_ZDR=true` only if the selected model has an available endpoint that meets your ZDR requirement. Keep model IDs compatible with the provider allowlist configured in your OpenRouter account. If a valid Hermes key is configured, Hermes is attempted after an OpenRouter failure; configured Ollama is the next fallback.
 
 
 ## Runtime capabilities and session cleanup
