@@ -46,6 +46,24 @@ services:
         value: "false"
       - key: OPENROUTER_ALLOW_FALLBACKS
         value: "true"
+      - key: BRAVE_SEARCH_API_KEY
+        sync: false
+      - key: DEHASHED_API_KEY
+        sync: false
+      - key: DEHASHED_EMAIL
+        sync: false
+      - key: SHODAN_API_KEY
+        sync: false
+      - key: VT_API_KEY
+        sync: false
+      - key: HIBP_API_KEY
+        sync: false
+      - key: HUNTER_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: ETHERSCAN_API_KEY
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: APP_ORIGIN

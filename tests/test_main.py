@@ -844,7 +844,8 @@ def test_mia_agent_tool_router_is_opt_in(app):
     assert app._should_use_mia_agent_tools("Resume the task and track my progress")
     assert not app._should_use_mia_agent_tools("Hi MIA, how are you?")
     names = {item["function"]["name"] for item in app.MIA_AGENT_TOOLS}
-    assert {"mia_web_search", "mia_open_page", "mia_memory_list", "mia_memory_save", "mia_task_create", "mia_task_list", "mia_task_update_step", "mia_read_document", "mia_review_code", "mia_github_read", "mia_request_local_command"} <= names
+    assert {"mia_web_search", "mia_open_page", "mia_memory_list", "mia_memory_save", "mia_task_create", "mia_task_list", "mia_task_update_step", "mia_read_document", "mia_review_code", "mia_github_read", "mia_request_local_command", "mia_safenestt_investigate"} <= names
+    assert app._should_use_mia_agent_tools("Run a SafeNestT investigation on this domain")
 
 
 def test_mia_agent_tool_arguments_are_validated_server_side(app):
