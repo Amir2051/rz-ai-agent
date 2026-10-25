@@ -102,13 +102,62 @@ def _reverse_dns(value: str) -> dict[str, Any]:
     except Exception as exc:
         return {**_http_error(exc), "source": "system_reverse_dns", "ip_address": value, "timestamp": _now()}
 
+def _result_mentions_indicator(item: dict[str, Any], value: str, kind: str) -> bool:
+    """Require a visible connection between a public-search result and its target."""
+    title = _safe_text(item.get("title"), 2000).casefold()
+    url = _safe_text(item.get("url"), 2000).casefold()
+    snippet = _safe_text(item.get("snippet"), 2000).casefold()
+    haystack = " ".join((title, url, snippet))
+    needle = value.strip().casefold()
+    if not needle or not haystack:
+        return False
+    if kind == "phone":
+        digits = re.sub(r"\D", "", needle)
+        return len(digits) >= 7 and digits in re.sub(r"\D", "", haystack)
+    if kind == "ip_address":
+        try:
+            canonical = str(ipaddress.ip_address(value))
+        except ValueError:
+            return False
+        return re.search(r"(?<![0-9A-Fa-f:.])" + re.escape(canonical) + r"(?![0-9A-Fa-f:.])", haystack) is not None
+    if kind == "domain":
+        # URLs can refer to the target or one of its subdomains. In prose, require
+        # a whole-domain token so "notexample.com.evil" is not a false match.
+        parsed = urlparse(url if "://" in url else "https://" + url)
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        if host == needle or host.endswith("." + needle):
+            return True
+        return re.search(r"(?<![A-Za-z0-9.-])" + re.escape(needle) + r"(?![A-Za-z0-9.-])", title + " " + snippet) is not None
+    # A direct textual match is a relevance gate, not proof that the result is adverse.
+    return needle in haystack
+
+
+def _is_reserved_example_domain(value: str) -> bool:
+    """Recognize documentation example domains so they are never treated as risk evidence."""
+    domain = value.strip().casefold().rstrip(".")
+    return any(domain == reserved or domain.endswith("." + reserved) for reserved in ("example.com", "example.net", "example.org"))
+
+
 def _osint(value: str, kind: str) -> dict[str, Any]:
     query = f'{kind} "{value}"'
     try:
         result = _search(query, 5)
         items = result.get("results", []) if isinstance(result, dict) else []
-        clean = [{"title": _safe_text(x.get("title"), 300), "url": _safe_text(x.get("url"), 1500), "snippet": _safe_text(x.get("snippet"), 700)} for x in items[:5] if isinstance(x, dict)]
-        return {"status": "success" if clean else "no_data", "source": result.get("source", "public_web_search"), "query_type": kind, "query": value, "result_count": len(clean), "results": clean, "limitations": ["Public search results are leads, not verified identity or legal facts.", "No results do not prove that no records exist."], "timestamp": _now()}
+        candidates = [{"title": _safe_text(x.get("title"), 300), "url": _safe_text(x.get("url"), 1500), "snippet": _safe_text(x.get("snippet"), 700)} for x in items[:5] if isinstance(x, dict)]
+        relevant = [item for item in candidates if _result_mentions_indicator(item, value, kind)]
+        return {
+            "status": "success" if relevant else "no_data",
+            "source": result.get("source", "public_web_search") if isinstance(result, dict) else "public_web_search",
+            "query_type": kind,
+            "query": value,
+            "result_count": len(relevant),
+            "candidate_result_count": len(candidates),
+            "ignored_irrelevant_result_count": len(candidates) - len(relevant),
+            "results": relevant,
+            "relevance_policy": "Only results visibly mentioning the indicator in title, URL, or snippet are retained.",
+            "limitations": ["Public search results are leads, not verified identity or legal facts.", "A textual match does not establish adverse activity or identity.", "No results do not prove that no records exist."],
+            "timestamp": _now(),
+        }
     except Exception as exc:
         return {**_http_error(exc), "source": "public_web_search", "query_type": kind, "query": value, "timestamp": _now()}
 
@@ -199,7 +248,18 @@ def run_tool(tool_name: str, indicator_type: str, value: str) -> dict[str, Any]:
         try:
             result = _search(f'site:ahmia.fi OR site:pastebin.com "{value}"', 5)
             items = result.get("results", []) if isinstance(result, dict) else []
-            return {"status": "success" if items else "no_data", "source": result.get("source", "public_web_search"), "result_count": len(items), "results": [{"title": _safe_text(x.get("title"), 300), "url": _safe_text(x.get("url"), 1500), "snippet": _safe_text(x.get("snippet"), 700)} for x in items[:5] if isinstance(x, dict)], "limitations": ["This searches public web indexes only; it does not access private or authenticated dark-web services."]}
+            candidates = [{"title": _safe_text(x.get("title"), 300), "url": _safe_text(x.get("url"), 1500), "snippet": _safe_text(x.get("snippet"), 700)} for x in items[:5] if isinstance(x, dict)]
+            relevant = [item for item in candidates if _result_mentions_indicator(item, value, indicator_type)]
+            return {
+                "status": "success" if relevant else "no_data",
+                "source": result.get("source", "public_web_search") if isinstance(result, dict) else "public_web_search",
+                "result_count": len(relevant),
+                "candidate_result_count": len(candidates),
+                "ignored_irrelevant_result_count": len(candidates) - len(relevant),
+                "results": relevant,
+                "relevance_policy": "A result is retained only when its title, URL, or snippet visibly contains the target indicator.",
+                "limitations": ["This searches public web indexes only; it does not access private or authenticated dark-web services.", "A direct match is a lead, not proof of exposure or wrongdoing."],
+            }
         except Exception as exc:
             return _http_error(exc)
     return _provider(tool_name, value, indicator_type)
@@ -233,8 +293,25 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
             result = {"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:180]}"}
         entry = {"tool": tool, "label": TOOL_CATALOG[tool]["label"], "indicator_type": kind, "target": value, "status": result.get("status", "unknown"), "duration_ms": round((time.monotonic() - t0) * 1000), "result": result}
         calls.append(entry)
-        if result.get("status") == "success" and any(result.get(k) not in (None, "", [], {}, 0) for k in ("addresses", "hostname", "results", "data", "breaches", "transactions", "markdown", "result_count")):
-            findings.append({"finding_id": f"F{len(findings)+1:03d}", "type": "external_intelligence", "title": f"{TOOL_CATALOG[tool]['label']} returned observations", "description": f"{TOOL_CATALOG[tool]['label']} returned data for the supplied {kind} indicator.", "confidence": 0.55, "source": result.get("source", tool), "target": value, "tool": tool, "evidence": result, "requires_human_review": True})
+        has_payload = result.get("status") == "success" and any(result.get(k) not in (None, "", [], {}, 0) for k in ("addresses", "hostname", "results", "data", "breaches", "transactions", "markdown", "result_count"))
+        if has_payload:
+            reserved_example = kind == "domain" and _is_reserved_example_domain(value)
+            finding_type = "contextual_information" if reserved_example else "external_observation"
+            findings.append({
+                "finding_id": f"F{len(findings)+1:03d}",
+                "type": finding_type,
+                "title": f"{TOOL_CATALOG[tool]['label']} returned observations",
+                "description": f"{TOOL_CATALOG[tool]['label']} returned data for the supplied {kind} indicator; this is an observation, not a validated risk conclusion.",
+                "evidence_relevance": "contextual_only" if reserved_example else ("indicator_matched" if tool in {"dns_lookup", "reverse_dns", "osint_profile", "reputation_score", "darkweb_paste"} else "provider_record_needs_validation"),
+                "confidence_level": "low",
+                "confidence_basis": "Provider response was received; the response does not by itself establish maliciousness, identity, or wrongdoing.",
+                "context": "Reserved documentation example domain; results must not be interpreted as adverse risk evidence." if reserved_example else None,
+                "source": result.get("source", tool),
+                "target": value,
+                "tool": tool,
+                "evidence": result,
+                "requires_human_review": True,
+            })
 
     # Phase 2: collection and enrichment, routed only to applicable indicator types.
     for kind, value in normalized.items():
@@ -256,7 +333,9 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
     # Phase 5: transparent assessment; never promote absence of data to a clean result.
     failures = [x for x in calls if x["status"] not in {"success", "no_data", "not_configured", "not_applicable"}]
     configured = {key: bool(os.getenv(key, "").strip()) for key in ENV_KEYS}
-    stages.append({"phase": 5, "name": "risk_assessment", "status": "success", "finding_count": len(findings), "provider_errors": len(failures), "risk_level": "needs_review" if findings else "undetermined", "note": "No automated guilt/innocence or fraud determination is made."})
+    contextual_count = sum(item.get("type") == "contextual_information" for item in findings)
+    substantive_observation_count = len(findings) - contextual_count
+    stages.append({"phase": 5, "name": "risk_assessment", "status": "success", "finding_count": len(findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "provider_errors": len(failures), "risk_level": "undetermined", "note": "Provider success and search-result presence are not risk signals by themselves. No automated guilt/innocence or fraud determination is made."})
 
     # Phase 6: machine-readable report with explicit gaps and config readiness.
     stages.append({"phase": 6, "name": "report_generation", "status": "success", "report_sections": ["summary", "tool_calls", "findings", "configuration", "limitations"]})
@@ -271,7 +350,7 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
         "indicators": normalized,
         "tool_calls": calls,
         "findings": findings,
-        "summary": {"tools_attempted": len(calls), "tools_succeeded": sum(x["status"] == "success" for x in calls), "providers_not_configured": sum(x["status"] == "not_configured" for x in calls), "findings_requiring_review": len(findings), "sources": sources},
+        "summary": {"tools_attempted": len(calls), "tools_succeeded": sum(x["status"] == "success" for x in calls), "providers_not_configured": sum(x["status"] == "not_configured" for x in calls), "findings_requiring_review": len(findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "sources": sources},
         "configuration": {"providers": [{"env_key": key, "purpose": purpose, "configured": configured[key]} for key, purpose in ENV_KEYS.items()]},
-        "limitations": ["External data can be incomplete, delayed, or incorrect.", "A provider success only confirms a response was received; it does not validate the conclusion.", "All findings require human review and corroboration.", "Missing credentials are reported as not_configured and are never silently treated as a clean result."],
+        "limitations": ["External data can be incomplete, delayed, or incorrect.", "A provider success only confirms a response was received; it does not validate the conclusion.", "Public-search findings are retained only when the title, URL, or snippet visibly matches the indicator.", "Confidence is qualitative and describes the evidence status, not the probability of wrongdoing.", "Reserved example domains are classified as contextual information, not adverse risk evidence.", "All findings require human review and corroboration.", "Missing credentials are reported as not_configured and are never silently treated as a clean result."],
     }
