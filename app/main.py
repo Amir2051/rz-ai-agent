@@ -498,6 +498,7 @@ class ChatResponse(BaseModel):
     session_id: str
     model: str
     provider: str
+    request_id: str
     reply: str
     history_length: int
     updated_at: str
@@ -1136,6 +1137,9 @@ def _complete_message(
     temperature,
     max_tokens,
 ) -> ChatResponse:
+    # Correlate the client-visible response with provider routing logs without
+    # logging prompts, responses, credentials, or account identifiers.
+    request_id = uuid.uuid4().hex
     providers = []
     openrouter_configured = bool(
         OPENROUTER_API_KEY and not _is_placeholder(OPENROUTER_API_KEY)
@@ -1274,6 +1278,15 @@ def _complete_message(
         )
         raise
 
+    # Emit an explicit success record only after a provider returned usable text.
+    # This is the authoritative provider-routing evidence for the request ID.
+    print(
+        "RZ_PROVIDER_SUCCESS",
+        {"request_id": request_id, "provider": provider,
+         "model": provider_model_used or model or OPENROUTER_MODEL},
+        flush=True,
+    )
+
     history = _get_session(session_id)["history"]
     history.append({"role": "user", "content": user_content})
     history.append({"role": "assistant", "content": reply})
@@ -1285,6 +1298,7 @@ def _complete_message(
         session_id=session_id,
         model=provider_model_used or model or OPENROUTER_MODEL,
         provider=provider,
+        request_id=request_id,
         reply=reply,
         history_length=len(history),
         updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
