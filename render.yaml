@@ -26,7 +26,9 @@ services:
         value: openrouter/free
       - key: OPENROUTER_MODEL
         value: nvidia/nemotron-3.5-lightning:free
-      - key: HERMES_API_KEY
+      - key: NOUS_OAUTH_STATE_JSON
+        sync: false
+      - key: NOUS_OAUTH_ENCRYPTION_KEY
         sync: false
       - key: HERMES_MODEL
         value: upstage/solar-mini4:free
