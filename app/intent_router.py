@@ -18,6 +18,7 @@ _EXPLICIT_AGENT_CUES = (
     "review this repo", "inspect this repository", "work on my repo",
     "search and compare", "look up and summarize", "investigate and summarize",
     "research this and give me sources", "research and report back",
+    "safenestt investigation", "run an investigation", "investigate this email", "investigate this domain", "investigate this ip", "trace this wallet", "osint investigation", "threat intelligence lookup",
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
