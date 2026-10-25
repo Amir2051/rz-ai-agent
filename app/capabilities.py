@@ -178,6 +178,58 @@ def investment_research(query: str, limit: int = 4) -> dict:
     }
 
 
+
+def investment_opportunity_scan(candidates: list, limit: int = 3) -> dict:
+    """Compare 2–5 user-specified investment candidates using source-linked research.
+
+    Deliberately returns an evidence matrix rather than a fabricated numeric ranking:
+    source snippets alone are insufficient to calculate a reliable valuation score.
+    """
+    if not isinstance(candidates, list) or not 2 <= len(candidates) <= 5:
+        raise ValueError("candidates must be a list containing 2–5 companies, funds, or tickers")
+    normalized = []
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate.strip() or len(candidate.strip()) > 120:
+            raise ValueError("each candidate must contain 1–120 characters")
+        label = candidate.strip()
+        if label.casefold() not in {item.casefold() for item in normalized}:
+            normalized.append(label)
+    if not 2 <= len(normalized) <= 5:
+        raise ValueError("provide at least two distinct candidates")
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 3:
+        raise ValueError("limit must be from 1 to 3")
+    researched = []
+    errors = []
+    for candidate in normalized:
+        try:
+            pack = investment_research(candidate, limit)
+            researched.append({"candidate": candidate, "research": pack})
+        except (RuntimeError, ValueError) as exc:
+            errors.append({"candidate": candidate, "error": str(exc)[:300]})
+    if not researched:
+        raise RuntimeError("Opportunity scan could not retrieve research for any candidate")
+    return {
+        "scan_as_of": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "status": "partial" if errors or len(researched) != len(normalized) else "ok",
+        "candidate_count": len(normalized),
+        "researched_count": len(researched),
+        "candidates": researched,
+        "errors": errors,
+        "comparison_framework": [
+            "Business/fund quality and primary-source evidence",
+            "Recent performance drivers, catalysts, and dated developments",
+            "Valuation versus peers and historical ranges; verify with dated financial data",
+            "Downside case, concentration, liquidity, and material risks",
+            "Evidence quality and unresolved questions before any conclusion",
+        ],
+        "limitations": [
+            "This scanner organizes source-linked research; it does not calculate a validated fair value or guaranteed ranking.",
+            "Search snippets are leads, not verified filings. Open primary sources and check reporting dates before relying on figures.",
+            "No personalized suitability assessment, guaranteed return, unconditional buy/sell instruction, or trade execution is provided.",
+        ],
+    }
+
+
 def investment_quotes(symbols: list) -> dict:
     """Fetch timestamped public market quote metadata for a bounded ticker list.
 

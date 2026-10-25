@@ -93,6 +93,34 @@ def test_investment_research_endpoint_requires_auth_and_validates_query(app, mon
     assert client.post('/v1/investment/research', headers={'X-API-Key': 'test-key'}, json={"query": ""}).status_code == 400
 
 
+
+def test_investment_opportunity_scan_compares_candidates_without_fake_scores(app, monkeypatch):
+    from app import capabilities
+    seen = []
+    def fake_research(candidate, limit):
+        seen.append(candidate)
+        return {"query": candidate, "status": "ok", "source_count": 2, "groups": [], "limitations": ["snippets only"]}
+    monkeypatch.setattr(capabilities, "investment_research", fake_research)
+    result = capabilities.investment_opportunity_scan(["AAPL", "MSFT", "VOO"], 2)
+    assert seen == ["AAPL", "MSFT", "VOO"]
+    assert result["researched_count"] == 3
+    assert [item["candidate"] for item in result["candidates"]] == seen
+    assert "comparison_framework" in result
+    assert not any("score" in item for item in result["candidates"])
+
+
+def test_investment_opportunity_scan_validates_candidates_and_endpoint_auth(app, monkeypatch):
+    from app import capabilities
+    client = TestClient(app.app)
+    assert client.post('/v1/investment/opportunity-scan', json={"candidates": ["AAPL", "MSFT"]}).status_code == 401
+    with pytest.raises(ValueError): capabilities.investment_opportunity_scan(["AAPL"])
+    with pytest.raises(ValueError): capabilities.investment_opportunity_scan(["AAPL", "aapl"])
+    monkeypatch.setattr(capabilities, "investment_research", lambda candidate, limit: {"query": candidate, "status": "ok", "groups": [], "source_count": 1})
+    response = client.post('/v1/investment/opportunity-scan', headers={'X-API-Key': 'test-key'}, json={"candidates": ["AAPL", "MSFT"]})
+    assert response.status_code == 200
+    assert response.json()["candidate_count"] == 2
+
+
 def test_investment_quotes_parses_price_timestamp_and_source(app, monkeypatch):
     import json
     from io import BytesIO

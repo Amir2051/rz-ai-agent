@@ -37,3 +37,8 @@ def test_investment_research_routes_to_agent_tools():
     assert should_use_agent_tools('Find investment opportunities in ETFs')
     assert should_use_agent_tools('Compare stocks for the best buying opportunity')
     assert should_use_agent_tools('Research this stock and give me an entry price')
+
+
+def test_opportunity_scanner_routes_to_agent_tools():
+    assert should_use_agent_tools("Run the opportunity scanner on these ETFs")
+    assert should_use_agent_tools("Scan investment opportunities in technology stocks")
