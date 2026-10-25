@@ -21,6 +21,9 @@ _EXPLICIT_AGENT_CUES = (
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
+    # Explicit tool/API names and output requirements must route to the agent loop too.
+    "mia_opportunity_scan", "mia_market_quotes", "live quotes", "quote timestamps",
+    "source-backed research", "source backed research", "investment scan",
 )
 
 # Natural requests that imply a persistent or multi-step workflow, not a simple answer.
