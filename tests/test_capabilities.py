@@ -61,6 +61,37 @@ def test_research_input_validation(app,monkeypatch):
     monkeypatch.setattr(capabilities,'urlopen',lambda *a,**k: (_ for _ in ()).throw(AssertionError('network should not be called')))
     with pytest.raises(ValueError): capabilities.web_research('x',0)
 
+
+def test_investment_research_returns_three_bounded_source_groups(app, monkeypatch):
+    from app import capabilities
+    seen = []
+    def fake_search(query, limit):
+        seen.append(query)
+        return {"source": "Test Search", "results": [
+            {"title": f"Source {len(seen)}", "url": f"https://example.com/{len(seen)}", "snippet": "Research lead"}
+        ]}
+    monkeypatch.setattr(capabilities, "web_research", fake_search)
+    result = capabilities.investment_research("SPY ETF", 2)
+    assert len(seen) == 3
+    assert result["source_count"] == 3
+    assert {group["category"] for group in result["groups"]} == {
+        "company_and_fund_primary_sources", "recent_market_developments", "independent_analysis_and_risks"
+    }
+    assert "live exchange quotes" in result["limitations"][0]
+    assert all(item["url"].startswith("https://") for group in result["groups"] for item in group["results"])
+
+
+def test_investment_research_endpoint_requires_auth_and_validates_query(app, monkeypatch):
+    from app import capabilities
+    client = TestClient(app.app)
+    assert client.post('/v1/investment/research', json={"query": "SPY"}).status_code == 401
+    monkeypatch.setattr(capabilities, "web_research", lambda query, limit: {"source": "test", "results": [{"title": "Fund", "url": "https://example.com/fund", "snippet": "Official fund data"}]})
+    response = client.post('/v1/investment/research', headers={'X-API-Key': 'test-key'}, json={"query": "SPY ETF"})
+    assert response.status_code == 200
+    assert response.json()["source_count"] == 1
+    assert response.json()["status"] == "ok"
+    assert client.post('/v1/investment/research', headers={'X-API-Key': 'test-key'}, json={"query": ""}).status_code == 400
+
 def test_image_generation_uses_openrouter_image_api_and_shared_key(app,monkeypatch):
     import json
     from io import BytesIO

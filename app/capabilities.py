@@ -132,6 +132,52 @@ def _html_search(url: str, engine: str, limit: int) -> list[dict]:
     return parser.items[:limit]
 
 
+def investment_research(query: str, limit: int = 4) -> dict:
+    """Build a bounded, source-linked research pack; this is not a market quote feed."""
+    if not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY:
+        raise ValueError(f"query must contain 1–{MAX_QUERY} characters")
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5:
+        raise ValueError("limit must be from 1 to 5")
+    topic = query.strip()
+    searches = [
+        ("company_and_fund_primary_sources", f"{topic} official investor relations SEC filings fund prospectus holdings expense ratio"),
+        ("recent_market_developments", f"{topic} latest earnings results market news risks 2026"),
+        ("independent_analysis_and_risks", f"{topic} valuation risks competitors analyst research bear case"),
+    ]
+    groups = []
+    seen = set()
+    errors = []
+    for category, search_query in searches:
+        try:
+            result = web_research(search_query[:MAX_QUERY], limit)
+            items = []
+            for item in result.get("results", []):
+                url = item.get("url", "")
+                if not isinstance(url, str) or not url.startswith("https://") or url in seen:
+                    continue
+                seen.add(url)
+                items.append({"title": str(item.get("title", ""))[:500], "url": url[:2000], "snippet": str(item.get("snippet", ""))[:1200]})
+            groups.append({"category": category, "source": result.get("source", "unknown"), "results": items})
+        except (RuntimeError, ValueError) as exc:
+            errors.append({"category": category, "error": str(exc)[:300]})
+    count = sum(len(group["results"]) for group in groups)
+    if not count:
+        raise RuntimeError("Investment research could not retrieve usable web sources. Configure BRAVE_SEARCH_API_KEY for more reliable search.")
+    return {
+        "query": topic,
+        "research_as_of": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "status": "partial" if errors else "ok",
+        "source_count": count,
+        "groups": groups,
+        "errors": errors,
+        "limitations": [
+            "Search snippets are leads for research, not verified financial statements or live exchange quotes.",
+            "No price, valuation, return, or suitability claim should be inferred unless the source page is opened and the data date is checked.",
+            "This endpoint does not execute trades or provide a guaranteed buy/sell signal.",
+        ],
+    }
+
+
 def web_research(query: str, limit: int = 5) -> dict:
     if not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY:
         raise ValueError(f"query must contain 1–{MAX_QUERY} characters")

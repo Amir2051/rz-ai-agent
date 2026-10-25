@@ -18,6 +18,9 @@ _EXPLICIT_AGENT_CUES = (
     "review this repo", "inspect this repository", "work on my repo",
     "search and compare", "look up and summarize", "investigate and summarize",
     "research this and give me sources", "research and report back",
+    "investment research", "investment opportunities", "compare stocks", "compare etfs",
+    "stock opportunities", "etf opportunities", "market research", "analyze this stock",
+    "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
 )
 
 # Natural requests that imply a persistent or multi-step workflow, not a simple answer.

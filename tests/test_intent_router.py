@@ -31,3 +31,9 @@ def test_basic_github_repository_lookup_keeps_direct_lookup_route():
     # A straightforward repository check should not be diverted into the broad agent loop.
     assert not should_use_agent_tools('Check my GitHub repository rz-ai-agent')
     assert should_use_agent_tools('Review this repo and report the key issues')
+
+
+def test_investment_research_routes_to_agent_tools():
+    assert should_use_agent_tools('Find investment opportunities in ETFs')
+    assert should_use_agent_tools('Compare stocks for the best buying opportunity')
+    assert should_use_agent_tools('Research this stock and give me an entry price')
