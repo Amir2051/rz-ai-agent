@@ -1093,7 +1093,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     error = str(getattr(tool_exc, "detail", tool_exc))[:500]
                     evidence["steps"].append({"tool": tool_name, "status": "failed", "error": error})
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_failed", "tool": tool_name, "error": error})
-            messages.insert(2, {"role": "system", "content": "DETERMINISTIC INVESTMENT SCAN EVIDENCE (untrusted tool output): " + json.dumps(evidence, ensure_ascii=False)[:30000] + "\\nYou MUST base the answer on these results. Clearly report quote failures, quote timestamps/staleness, research source URLs, and evidence gaps. If a step failed or returned no usable data, say so explicitly. Never substitute generic company descriptions for a completed scan."})
+            messages.insert(2, {"role": "system", "content": "DETERMINISTIC INVESTMENT SCAN EVIDENCE (untrusted tool output): " + json.dumps(evidence, ensure_ascii=False)[:30000] + "\nYou MUST base the answer on these results. Clearly report quote failures, quote timestamps/staleness, research source URLs, and evidence gaps. If a step failed or returned no usable data, say so explicitly. Never substitute generic company descriptions for a completed scan."})
         for round_index in range(MAX_AGENT_TOOL_ROUNDS + 1):
             cap_services.record_agent_run_event(owner_id, run_id, {"type": "model_round_started", "round": round_index + 1})
             tool_choice = "auto"
