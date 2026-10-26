@@ -600,17 +600,14 @@ def _call_openrouter(messages: list[dict], model: str, temperature, max_tokens, 
         raise HTTPException(status_code=502, detail="OpenRouter rejected the model request. Check model availability and account Privacy/Guardrails restrictions.") from None
 
 
-def _call_hermes(messages: list[dict], model: str, temperature, max_tokens) -> dict:
-    payload: dict = {
-        "model": model or HERMES_MODEL,
-        "messages": messages,
-    }
-    if temperature is not None:
-        payload["temperature"] = temperature
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
-    data = json.dumps(payload).encode("utf-8")
+def _call_hermes(messages: list[dict], model: str, temperature, max_tokens, tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
+    """Call Nous inference, including OpenAI-compatible tools when requested."""
     from app import nous_oauth
+    if tools:
+        return nous_oauth.chat_completions(
+            messages, model or HERMES_MODEL, temperature, max_tokens,
+            tools=tools, tool_choice=tool_choice,
+        )
     return nous_oauth.chat_completions(
         messages, model or HERMES_MODEL, temperature, max_tokens
     )
@@ -864,7 +861,8 @@ def _request_local_terminal_command(command: str, workspace: str, owner_id: str 
     return (finished or {}).get("result") or {"status": "error", "message": "Local job result was unavailable."}
 
 
-def _complete_with_local_terminal_tools(system, user_content, session_id, model, temperature, max_tokens):
+def _complete_with_local_terminal_tools(system, user_content, session_id, model, temperature, max_tokens, completion_fn=None):
+    completion_fn = completion_fn or _call_openrouter
     messages = _base_messages(system, user_content, session_id)
     messages.insert(1, {
         "role": "system",
@@ -877,7 +875,7 @@ def _complete_with_local_terminal_tools(system, user_content, session_id, model,
         )
     })
     for round_index in range(4):
-        result = _call_openrouter(
+        result = completion_fn(
             messages, model or OPENROUTER_MODEL, temperature, max_tokens,
             tools=[LOCAL_TERMINAL_TOOL],
             tool_choice="required" if round_index == 0 else "auto",
@@ -1107,7 +1105,13 @@ def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: s
     raise ValueError("Tool is not allowlisted")
 
 
-def _complete_with_mia_agent_tools(system, user_content, session_id, model, temperature, max_tokens):
+class AgentToolExecutionError(RuntimeError):
+    """Signals that a provider failed after a tool started; automatic replay is unsafe."""
+
+
+def _complete_with_mia_agent_tools(system, user_content, session_id, model, temperature, max_tokens, completion_fn=None):
+    completion_fn = completion_fn or _call_openrouter
+    tool_execution_started = False
     owner_id = session_id.split(":", 1)[0] if ":" in session_id else "local"
     run = cap_services.create_agent_run(owner_id, session_id, user_content)
     run_id = run["id"]
@@ -1124,7 +1128,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
             # never let the model respond with only a plan or progress narration.
             first_round_tools = [investigation_tool] if force_investigation and round_index == 0 else MIA_AGENT_TOOLS
             first_round_choice = "required" if force_investigation and round_index == 0 else "auto"
-            result = _call_openrouter(messages, model or OPENROUTER_MODEL, temperature, max_tokens, tools=first_round_tools, tool_choice=first_round_choice)
+            result = completion_fn(messages, model or OPENROUTER_MODEL, temperature, max_tokens, tools=first_round_tools, tool_choice=first_round_choice)
             choices = result.get("choices")
             choice = choices[0] if isinstance(choices, list) and choices else {}
             assistant = choice.get("message") if isinstance(choice, dict) else None
@@ -1152,6 +1156,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     args = json.loads(raw) if isinstance(raw, str) else raw
                     _validate_mia_agent_tool_args(name, args)
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_started", "tool": name, "argument_keys": sorted(args.keys())})
+                    tool_execution_started = True
                     tool_result = _dispatch_mia_agent_tool(name, args, owner_id, session_id)
                     event_result = tool_result
                     if name == "mia_safenestt_investigate" and isinstance(tool_result, dict):
@@ -1178,6 +1183,10 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
             cap_services.finish_agent_run(owner_id, run_id, "failed", error=str(getattr(exc, "detail", exc))[:1000])
         except Exception:
             pass
+        if tool_execution_started:
+            raise AgentToolExecutionError(
+                "MIA stopped after a tool started; refusing to replay the task on another provider. Retry only after checking the run history."
+            ) from exc
         raise
 
 def _complete_message(
@@ -1216,13 +1225,22 @@ def _complete_message(
             else OLLAMA_MODEL
         )
         try:
-            if name == "openrouter" and _should_use_mia_agent_tools(user_content):
+            if name in {"openrouter", "hermes"} and _should_use_mia_agent_tools(user_content):
                 result = _complete_with_mia_agent_tools(
-                    system, user_content, session_id, provider_model, temperature, max_tokens
+                    system, user_content, session_id, provider_model, temperature, max_tokens,
+                    completion_fn=fn,
                 )
-            elif name == "openrouter" and _should_offer_local_terminal_tools(user_content):
+            elif name in {"openrouter", "hermes"} and _should_offer_local_terminal_tools(user_content):
                 result = _complete_with_local_terminal_tools(
-                    system, user_content, session_id, provider_model, temperature, max_tokens
+                    system, user_content, session_id, provider_model, temperature, max_tokens,
+                    completion_fn=fn,
+                )
+            elif name == "hermes" and (_should_offer_github_tools(user_content) or _should_research_web(user_content)):
+                # Reuse the same owner-scoped, bounded tool loop on Nous instead of
+                # silently degrading these requests to a plain-text answer.
+                result = _complete_with_mia_agent_tools(
+                    system, user_content, session_id, provider_model, temperature, max_tokens,
+                    completion_fn=fn,
                 )
             elif name == "openrouter" and _should_offer_github_tools(user_content):
                 result = _complete_with_direct_github_context(
@@ -1243,6 +1261,9 @@ def _complete_message(
             provider = name
             provider_model_used = provider_model
             break
+        except AgentToolExecutionError as exc:
+            print("RZ_PROVIDER_ERROR", {"provider": name, "reason": "tool_execution_started_no_replay"}, flush=True)
+            raise HTTPException(status_code=502, detail=str(exc)) from None
         except HTTPException as exc:
             if exc.status_code < 500:
                 raise

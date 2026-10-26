@@ -193,13 +193,20 @@ def get_access_token(force_refresh: bool = False) -> str:
         raise NousOAuthError(f"Nous OAuth credential storage failed ({type(exc).__name__})") from None
 
 
-def chat_completions(messages: list[dict], model: str, temperature=None, max_tokens=None) -> dict:
-    """Call Nous inference API using a refreshed OAuth bearer token."""
+def chat_completions(messages: list[dict], model: str, temperature=None, max_tokens=None, tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
+    """Call Nous inference API using a refreshed OAuth bearer token.
+
+    Tool definitions are forwarded only when explicitly requested. This keeps
+    ordinary chat payloads unchanged while enabling the bounded agent tool loop.
+    """
     payload: dict = {"model": model, "messages": messages}
     if temperature is not None:
         payload["temperature"] = temperature
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = tool_choice
     for attempt in range(2):
         token = get_access_token(force_refresh=(attempt == 1))
         request = Request(
