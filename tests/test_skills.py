@@ -4,7 +4,7 @@ from app.skills import matching_skills, public_skills, skill_context
 def test_public_skill_catalog_has_expected_profiles():
     ids = {item['id'] for item in public_skills()}
     assert ids == {
-        'strategic_operator', 'software_engineering', 'investment_intelligence',
+        'strategic_operator', 'software_engineering', 'machine_learning_engineering', 'investment_intelligence',
         'research_and_evidence', 'rz_principles', 'learning_coach',
         'ethical_tool_use', 'creator_and_communication',
     }

@@ -19,6 +19,10 @@ _EXPLICIT_AGENT_CUES = (
     "search and compare", "look up and summarize", "investigate and summarize",
     "research this and give me sources", "research and report back",
     "safenestt investigation", "run an investigation", "validation investigation", "complete validation investigation", "six-phase investigation", "six phase investigation", "investigate this email", "investigate this domain", "investigate this ip", "trace this wallet", "osint investigation", "threat intelligence lookup",
+    "write code", "write a program", "help me code", "coding task", "implement this",
+    "build a neural network", "neural network", "neural networks", "machine learning",
+    "deep learning", "pytorch", "tensorflow", "scikit-learn", "train a model",
+    "model architecture", "debug this", "fix this bug", "run the tests",
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
@@ -33,6 +37,7 @@ _ACTION_PATTERNS = (
     r"\b(?:search|research|investigate|compare)\b.{0,50}\b(?:and|then)\b.{0,35}\b(?:summarize|report|recommend|create|organize)\b",
     r"\b(?:track|update|mark)\b.{0,40}\b(?:my )?(?:progress|task|step|checklist)\b",
     r"\b(?:analyze|summarize|extract)\b.{0,35}\b(?:this )?(?:document|pdf|report|file)\b",
+    r"\b(?:write|build|implement|debug|test|train)\b.{0,45}\b(?:code|program|neural network|model|algorithm|function|script)\b",
     r"\b(?:run|perform|execute|start)\b.{0,60}\b(?:investigation|investigate)\b",
 )
 

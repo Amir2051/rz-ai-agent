@@ -1000,7 +1000,7 @@ def test_public_skill_catalog_contains_only_display_fields(app):
     response = TestClient(app.app).get('/v1/skills')
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload['skills']) == 8
+    assert len(payload['skills']) == 9
     assert all(set(skill) == {'id', 'name', 'description'} for skill in payload['skills'])
 
 

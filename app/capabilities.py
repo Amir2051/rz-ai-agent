@@ -748,6 +748,7 @@ def capabilities() -> dict:
         'chat': {'available': True},
         'github': {'available': True, 'read_only': True, 'owner_scope': 'Amir2051'},
         'web_research': {'available': True, 'provider_configured': bool(os.getenv('BRAVE_SEARCH_API_KEY','').strip()), 'fallback': ['DuckDuckGo HTML', 'DuckDuckGo Lite', 'Bing HTML'], 'configuration_required_for_reliable_search': ['brave_search_api_key'] if not os.getenv('BRAVE_SEARCH_API_KEY','').strip() else [], 'max_results': MAX_RESULTS},
+        'firecrawl': {'available': bool(os.getenv('FIRECRAWL_API_KEY', '').strip()), 'tools': ['firecrawl_search', 'firecrawl_scrape'], 'search_max_results': 5, 'scrape_max_characters': 10000, 'configuration_required': [] if os.getenv('FIRECRAWL_API_KEY', '').strip() else ['firecrawl_api_key']},
         'image_generation': {
             'available': bool((os.getenv('IMAGE_GENERATION_API_KEY','').strip() or os.getenv('OPENROUTER_API_KEY','').strip())
                               and (os.getenv('IMAGE_GENERATION_ENDPOINT','https://openrouter.ai/api/v1/images').strip().startswith('https://'))
