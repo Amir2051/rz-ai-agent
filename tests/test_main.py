@@ -1127,4 +1127,4 @@ def test_agent_tool_failure_after_execution_starts_does_not_replay_on_fallback(a
     with pytest.raises(HTTPException) as exc:
         app._complete_message("system", "Build and test a feature", "local:session", None, 0, 500)
     assert exc.value.status_code == 502
-    assert "refusing to replay" in exc.value.detail
+    assert exc.value.detail == "no replay"
