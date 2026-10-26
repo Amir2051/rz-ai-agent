@@ -1212,7 +1212,7 @@ def _complete_message(
     for name, fn in providers:
         provider_model = (
             (model or OPENROUTER_MODEL) if name == "openrouter"
-            else (model or HERMES_MODEL) if name == "hermes"
+            else HERMES_MODEL if name == "hermes"
             else OLLAMA_MODEL
         )
         try:
@@ -1266,7 +1266,7 @@ def _complete_message(
                 pass
             provider_model = (
                 (model or OPENROUTER_MODEL) if name == "openrouter"
-                else (model or HERMES_MODEL) if name == "hermes"
+                else HERMES_MODEL if name == "hermes"
                 else OLLAMA_MODEL
             )
             print(
@@ -1291,7 +1291,7 @@ def _complete_message(
                 {
                     "provider": name,
                     "error_type": type(exc).__name__,
-                    "model": (model or OPENROUTER_MODEL) if name == "openrouter" else (model or HERMES_MODEL) if name == "hermes" else OLLAMA_MODEL,
+                    "model": (model or OPENROUTER_MODEL) if name == "openrouter" else HERMES_MODEL if name == "hermes" else OLLAMA_MODEL,
                 },
                 flush=True,
             )
