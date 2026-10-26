@@ -1109,3 +1109,22 @@ def test_hermes_provider_uses_agent_tool_loop_for_complex_tasks(app, monkeypatch
     assert response.provider == "hermes"
     assert calls["agent_loop"]["completion_fn"] is fake_hermes
     assert calls["provider_call"]["tool_choice"] == "auto"
+
+
+def test_agent_tool_failure_after_execution_starts_does_not_replay_on_fallback(app, monkeypatch):
+    monkeypatch.setattr(app, "OPENROUTER_API_KEY", "configured")
+    monkeypatch.setattr(app, "HERMES_ENABLED", True)
+    monkeypatch.setattr(app, "_should_use_mia_agent_tools", lambda _content: True)
+
+    def fail_after_tool_started(*_args, **_kwargs):
+        raise app.AgentToolExecutionError("no replay")
+
+    def forbidden_fallback(*_args, **_kwargs):
+        raise AssertionError("fallback must not replay an agent task after a tool started")
+
+    monkeypatch.setattr(app, "_complete_with_mia_agent_tools", fail_after_tool_started)
+    monkeypatch.setattr(app, "_call_hermes", forbidden_fallback)
+    with pytest.raises(HTTPException) as exc:
+        app._complete_message("system", "Build and test a feature", "local:session", None, 0, 500)
+    assert exc.value.status_code == 502
+    assert "refusing to replay" in exc.value.detail
