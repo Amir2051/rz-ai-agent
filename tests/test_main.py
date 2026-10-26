@@ -1072,3 +1072,40 @@ def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypat
         app.require_chat_user(object(), "", "invalid-key")
     assert exc.value.status_code == 401
 
+
+
+def test_hermes_completion_forwards_tools_only_when_requested(app, monkeypatch):
+    from app import nous_oauth
+    captured = {}
+
+    def fake_chat_completions(messages, model, temperature, max_tokens, **kwargs):
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": "tool-capable"}}]}
+
+    monkeypatch.setattr(nous_oauth, "chat_completions", fake_chat_completions)
+    tool = {"type": "function", "function": {"name": "mia_web_search", "parameters": {"type": "object"}}}
+    result = app._call_hermes([{"role": "user", "content": "research"}], "upstage/solar-mini4:free", 0, 200, tools=[tool], tool_choice="required")
+    assert result["choices"][0]["message"]["content"] == "tool-capable"
+    assert captured == {"tools": [tool], "tool_choice": "required"}
+
+
+def test_hermes_provider_uses_agent_tool_loop_for_complex_tasks(app, monkeypatch):
+    calls = {}
+    monkeypatch.setattr(app, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(app, "HERMES_ENABLED", True)
+
+    def fake_hermes(messages, model, temperature, max_tokens, **kwargs):
+        calls["provider_call"] = kwargs
+        return {"choices": [{"message": {"content": "Nous reply"}}]}
+
+    def fake_agent(system, content, session_id, model, temperature, max_tokens, completion_fn=None):
+        calls["agent_loop"] = {"content": content, "model": model, "completion_fn": completion_fn}
+        return completion_fn([{"role": "user", "content": content}], model, temperature, max_tokens, tools=[{"type": "function"}], tool_choice="auto")
+
+    monkeypatch.setattr(app, "_call_hermes", fake_hermes)
+    monkeypatch.setattr(app, "_complete_with_mia_agent_tools", fake_agent)
+    monkeypatch.setattr(app, "_should_use_mia_agent_tools", lambda _content: True)
+    response = app._complete_message("system", "Build and test this complex feature", "local:session", None, 0, 500)
+    assert response.provider == "hermes"
+    assert calls["agent_loop"]["completion_fn"] is fake_hermes
+    assert calls["provider_call"]["tool_choice"] == "auto"
