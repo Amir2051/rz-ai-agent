@@ -1105,8 +1105,13 @@ def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: s
     raise ValueError("Tool is not allowlisted")
 
 
+class AgentToolExecutionError(RuntimeError):
+    """Signals that a provider failed after a tool started; automatic replay is unsafe."""
+
+
 def _complete_with_mia_agent_tools(system, user_content, session_id, model, temperature, max_tokens, completion_fn=None):
     completion_fn = completion_fn or _call_openrouter
+    tool_execution_started = False
     owner_id = session_id.split(":", 1)[0] if ":" in session_id else "local"
     run = cap_services.create_agent_run(owner_id, session_id, user_content)
     run_id = run["id"]
@@ -1151,6 +1156,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     args = json.loads(raw) if isinstance(raw, str) else raw
                     _validate_mia_agent_tool_args(name, args)
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_started", "tool": name, "argument_keys": sorted(args.keys())})
+                    tool_execution_started = True
                     tool_result = _dispatch_mia_agent_tool(name, args, owner_id, session_id)
                     event_result = tool_result
                     if name == "mia_safenestt_investigate" and isinstance(tool_result, dict):
@@ -1177,6 +1183,10 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
             cap_services.finish_agent_run(owner_id, run_id, "failed", error=str(getattr(exc, "detail", exc))[:1000])
         except Exception:
             pass
+        if tool_execution_started:
+            raise AgentToolExecutionError(
+                "MIA stopped after a tool started; refusing to replay the task on another provider. Retry only after checking the run history."
+            ) from exc
         raise
 
 def _complete_message(
@@ -1251,6 +1261,9 @@ def _complete_message(
             provider = name
             provider_model_used = provider_model
             break
+        except AgentToolExecutionError as exc:
+            print("RZ_PROVIDER_ERROR", {"provider": name, "reason": "tool_execution_started_no_replay"}, flush=True)
+            raise HTTPException(status_code=502, detail=str(exc)) from None
         except HTTPException as exc:
             if exc.status_code < 500:
                 raise
