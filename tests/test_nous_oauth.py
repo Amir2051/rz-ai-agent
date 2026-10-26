@@ -77,3 +77,29 @@ def test_encryption_key_is_required(monkeypatch):
     monkeypatch.delenv("NOUS_OAUTH_ENCRYPTION_KEY", raising=False)
     with pytest.raises(nous_oauth.NousOAuthError, match="encryption key"):
         nous_oauth._fernet()
+
+
+def test_chat_completions_forwards_tool_schema_and_choice(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(nous_oauth, "get_access_token", lambda force_refresh=False: "short-lived-test-token")
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def read(self):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request, timeout=45):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        captured["auth"] = request.get_header("Authorization")
+        return Response()
+
+    monkeypatch.setattr(nous_oauth, "urlopen", fake_urlopen)
+    tools = [{"type": "function", "function": {"name": "mia_web_search", "parameters": {"type": "object"}}}]
+    result = nous_oauth.chat_completions([{"role": "user", "content": "search"}], "upstage/solar-mini4:free", 0, 200, tools=tools, tool_choice="required")
+    assert result["choices"][0]["message"]["content"] == "ok"
+    assert captured["payload"]["tools"] == tools
+    assert captured["payload"]["tool_choice"] == "required"
+    assert captured["auth"] == "Bearer short-lived-test-token"
