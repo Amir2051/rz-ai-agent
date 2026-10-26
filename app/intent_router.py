@@ -23,6 +23,9 @@ _EXPLICIT_AGENT_CUES = (
     "build a neural network", "neural network", "neural networks", "machine learning",
     "deep learning", "pytorch", "tensorflow", "scikit-learn", "train a model",
     "model architecture", "debug this", "fix this bug", "run the tests",
+    "write the code", "create a function", "create a script", "refactor this",
+    "write javascript", "write a python", "add a feature", "develop a feature",
+    "implement a", "build me", "train a model", "training loop", "coding agent",
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
@@ -39,11 +42,13 @@ _ACTION_PATTERNS = (
     r"\b(?:analyze|summarize|extract)\b.{0,35}\b(?:this )?(?:document|pdf|report|file)\b",
     r"\b(?:write|build|implement|debug|test|train)\b.{0,45}\b(?:code|program|neural network|model|algorithm|function|script)\b",
     r"\b(?:run|perform|execute|start)\b.{0,60}\b(?:investigation|investigate)\b",
+    r"\b(?:implement|build|write|create|debug|fix|refactor|code|program)\b.{0,55}\b(?:function|script|app|feature|api|model|neural network|machine learning|python|javascript|typescript|class|module|algorithm|test)\b",
+    r"\b(?:neural network|machine learning|deep learning|pytorch|tensorflow|scikit.learn)\b",
 )
 
 
 def should_use_agent_tools(message: str) -> bool:
-    """Return true for explicit agent requests or likely multi-step tool workflows."""
+    """Route coding, ML, research, investigations, and multi-step work through the bounded agent loop."""
     text = re.sub(r"\s+", " ", str(message or "").casefold()).strip()
     if not text:
         return False
