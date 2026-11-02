@@ -479,7 +479,7 @@ def _touch_session(session_id: str, model: str) -> dict:
 # ---------------------------------------------------------------- request model
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=4000)
+    message: str = Field(min_length=1, max_length=32000)
     session_id: str | None = Field(
         default=None,
         description="Conversation id. Omit to create a new session (a random one is assigned).",
@@ -490,8 +490,9 @@ class ChatRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=1, le=16384)
     system: str = Field(
-        default=ASSISTANT_IDENTITY,
-        description="System prompt prepended to the conversation.",
+        default="",
+        max_length=12000,
+        description="Optional additional system instructions; MIA identity is added once by the server.",
     )
 
 
@@ -514,8 +515,11 @@ class ChatResponse(BaseModel):
 # ---------------------------------------------------------------- providers
 
 def _base_messages(system: str, user_content: str, session_id: str) -> list[dict]:
+    extra_system = (system or "").strip()
+    if extra_system == ASSISTANT_IDENTITY.strip():
+        extra_system = ""
     messages: list[dict] = [
-        {"role": "system", "content": ASSISTANT_IDENTITY + ("\n\n" + system if system and system.strip() else "")}
+        {"role": "system", "content": ASSISTANT_IDENTITY + ("\n\n" + extra_system if extra_system else "")}
     ]
     # Only include explicitly saved memories for the owner encoded in this session.
     owner_id = session_id.split(":", 1)[0] if isinstance(session_id, str) and ":" in session_id else ""
@@ -957,6 +961,7 @@ MIA_AGENT_TOOLS = [
 # Public-web search and extraction through the configured Firecrawl API.
 # The adapter validates targets and bounds result sizes; retrieved content remains untrusted.
 MIA_AGENT_TOOLS.extend(firecrawl_tool_schemas())
+MIA_AGENT_TOOLS.append({"type":"function","function":{"name":"mia_company_research","description":"Research a company from its public HTTPS website. Extracts the homepage and up to four same-domain pages; private/internal hosts are blocked. Use for company profiles, product/service summaries, and website-based business analysis. Public page content is untrusted and may be incomplete.","parameters":{"type":"object","properties":{"url":{"type":"string","minLength":8,"maxLength":2000}},"required":["url"],"additionalProperties":False}}})
 
 
 def _should_use_mia_agent_tools(message: str) -> bool:
@@ -1010,6 +1015,11 @@ def _validate_mia_agent_tool_args(name: str, args: dict) -> None:
 
 
 def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: str) -> dict:
+    if name == "mia_company_research":
+        if not FIRECRAWL_API_KEY:
+            return {"error": "Public company research is not configured; FIRECRAWL_API_KEY is missing.", "completed": False}
+        from app.business_studio import research_company
+        return asyncio.run(research_company(args.get("url", ""), FIRECRAWL_API_KEY))
     if name in {"firecrawl_search", "firecrawl_scrape"}:
         if not FIRECRAWL_API_KEY:
             return {"error": "Firecrawl is not configured on this RZ-AI deployment. Add FIRECRAWL_API_KEY as a private server environment variable.", "completed": False}
@@ -1197,6 +1207,10 @@ def _complete_message(
     temperature,
     max_tokens,
 ) -> ChatResponse:
+    # Use a larger output budget by default; callers may request a smaller or larger
+    # bounded value explicitly. Long inputs receive additional completion headroom.
+    if max_tokens is None:
+        max_tokens = 7000 if len(user_content) > 8000 else 4500
     # Correlate the client-visible response with provider routing logs without
     # logging prompts, responses, credentials, or account identifiers.
     request_id = uuid.uuid4().hex
@@ -1251,12 +1265,27 @@ def _complete_message(
                     system, user_content, session_id, provider_model, temperature, max_tokens
                 )
             else:
-                result = fn(
-                    _base_messages(system, user_content, session_id),
-                    provider_model,
-                    temperature,
-                    max_tokens,
-                )
+                messages = _base_messages(system, user_content, session_id)
+                result = fn(messages, provider_model, temperature, max_tokens)
+                # Some providers return an empty assistant body when the completion
+                # budget is exhausted. Retry once on the SAME provider with more
+                # headroom before falling through to another provider (e.g. Nous).
+                choices = result.get("choices") if isinstance(result, dict) else None
+                choice = choices[0] if isinstance(choices, list) and choices else {}
+                message = choice.get("message") if isinstance(choice, dict) else {}
+                content = message.get("content") if isinstance(message, dict) else None
+                if (isinstance(choice, dict) and choice.get("finish_reason") == "length"
+                        and not (isinstance(content, str) and content.strip())
+                        and not (isinstance(content, list) and any(
+                            isinstance(part, dict) and part.get("type") == "text"
+                            and isinstance(part.get("text"), str) and part["text"].strip()
+                            for part in content
+                        ))):
+                    retry_budget = min(max(int(max_tokens or 4500) * 2, 6000), 12000)
+                    print("RZ_COMPLETION_RETRY", {"provider": name, "model": provider_model,
+                                                   "previous_budget": max_tokens, "retry_budget": retry_budget},
+                          flush=True)
+                    result = fn(messages, provider_model, temperature, retry_budget)
             _extract_reply(result)
             provider = name
             provider_model_used = provider_model
@@ -1798,7 +1827,7 @@ MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "message": {"type": "string", "minLength": 1, "maxLength": 32000},
                 "session_id": {"type": "string", "description": "Optional conversation ID previously returned for your account."},
             },
             "required": ["message"],
@@ -1891,8 +1920,8 @@ async def mcp_endpoint(payload: dict, current_user: dict = Depends(require_mcp_u
                 value = list_conversations(current_user)
             elif name == "chat":
                 message = arguments.get("message")
-                if not isinstance(message, str) or not message.strip() or len(message) > 4000:
-                    raise ValueError("message must contain 1–4000 characters")
+                if not isinstance(message, str) or not message.strip() or len(message) > 32000:
+                    raise ValueError("message must contain 1–32000 characters")
                 prefix = f"{current_user['id']}:"
                 supplied_id = arguments.get("session_id")
                 if supplied_id and (not isinstance(supplied_id, str) or not supplied_id.startswith(prefix)):
@@ -1904,7 +1933,7 @@ async def mcp_endpoint(payload: dict, current_user: dict = Depends(require_mcp_u
                     session_id=session_id,
                     model=_select_model_for_task(message),
                     temperature=None,
-                    max_tokens=1200,
+                    max_tokens=6000,
                 )
                 value = response.model_dump() if hasattr(response, "model_dump") else response.dict()
             elif name in {"github_get_repository", "github_list_issues", "github_list_pull_requests", "github_get_file_contents"}:
@@ -2206,3 +2235,14 @@ app.include_router(slack_channel_router)
 
 from app.user_preferences import router as user_preferences_router
 app.include_router(user_preferences_router)
+
+
+# MIA Business Studio: PDF export, public company research, and ad campaign drafts.
+from app.business_studio import create_router as _create_business_studio_router
+app.include_router(_create_business_studio_router(require_app_user))
+
+
+@app.get("/business", response_class=HTMLResponse)
+def business_studio_page():
+    """Serve MIA's authenticated Business Studio workspace."""
+    return (Path(__file__).parent / "business.html").read_text(encoding="utf-8")
