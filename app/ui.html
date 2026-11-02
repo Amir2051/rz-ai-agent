@@ -606,6 +606,244 @@ html[data-mia-theme="light"] .bubble.rz-output{--rz-bg:#fff;--rz-line:#cfe2ec;--
 #messages .bubble.rz-output,html[data-mia-theme="light"] #messages .bubble.rz-output{background:var(--rz-bg)!important;background-image:none!important;border:1px solid var(--rz-line)!important;border-radius:16px!important;max-width:100%!important;width:100%;align-self:stretch!important}
 @media(max-width:700px){#messages{padding-left:12px!important;padding-right:12px!important}}
 </style>
+<style id="mia-full-workspace-redesign">
+:root{
+ color-scheme:light;
+ --panel:#ffffff;--line:#e8e3da;--text:#292923;--muted:#77776e;
+ --accent:#617b67;--bad:#b94d4d;
+ --page:#f4f2ed;--surface:#fffefa;--surface-soft:#f8f7f2;
+ --ink:#292923;--sage:#617b67;--sage-soft:#e9efe8;--warm:#c58a58;
+}
+*{box-sizing:border-box}
+html,body{width:100%;min-height:100%;background:var(--page)!important;color:var(--ink)!important}
+body{
+ margin:0!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;
+ letter-spacing:0!important;background:var(--page)!important;
+}
+body:before{display:none!important}
+.wrap{
+ width:100%!important;max-width:none!important;min-height:100dvh!important;height:100dvh!important;
+ margin:0!important;padding:20px clamp(14px,2.2vw,32px) 20px!important;
+ display:flex!important;flex-direction:column!important;gap:16px!important;
+}
+.head{
+ flex:0 0 auto!important;display:flex!important;align-items:center!important;gap:14px!important;
+ min-height:64px!important;margin:0!important;padding:0 2px 14px!important;
+ border-bottom:1px solid #e5e0d7!important;
+}
+.head:after{display:none!important}
+.head .logo{
+ width:44px!important;height:44px!important;border-radius:14px!important;
+ color:#fff!important;background:#303a32!important;border:0!important;box-shadow:none!important;
+ font-size:14px!important;letter-spacing:.08em!important;animation:none!important;
+}
+.head .logo:before,.head .logo:after{display:none!important}
+.head h1{margin:0!important;color:#282a25!important;font-size:22px!important;font-weight:700!important;letter-spacing:-.045em!important}
+.head p{margin:2px 0 0!important;color:#77776e!important;font-size:12px!important}
+.eyebrow{color:#758274!important;font-size:9px!important;font-weight:750!important;letter-spacing:.17em!important}
+.brand-tag{color:#647563!important;background:#edf1e9!important;border:1px solid #dce4d9!important;border-radius:999px!important;font-size:9px!important;letter-spacing:.06em!important}
+.head .status{margin-left:auto!important;max-width:260px!important;padding:7px 11px!important;border:1px solid #e5e2da!important;border-radius:999px!important;background:#fffefa!important;color:#77776e!important;font-size:11px!important}
+.dot{background:#739477!important;box-shadow:none!important}
+.layout#miaAppLayout{
+ flex:1 1 auto!important;min-height:0!important;width:100%!important;
+ display:grid!important;grid-template-columns:270px minmax(0,1fr)!important;
+ align-items:stretch!important;gap:18px!important;
+}
+.mia-sidebar{
+ position:relative!important;top:auto!important;max-height:100%!important;height:100%!important;
+ overflow-y:auto!important;padding:16px!important;border-radius:18px!important;
+ background:#eeece5!important;border:1px solid #e3dfd6!important;
+ box-shadow:none!important;backdrop-filter:none!important;color:#33362f!important;
+ scrollbar-width:thin!important;scrollbar-color:#d0cec4 transparent!important;
+}
+.mia-sidebar:before{display:none!important}
+.mia-side-nav{display:flex!important;flex-direction:column!important;gap:4px!important}
+.nav-kicker,.section-label{
+ margin:16px 9px 7px!important;color:#8a8d80!important;
+ font-size:9px!important;font-weight:800!important;letter-spacing:.15em!important;
+}
+.side-nav-item{
+ display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;
+ min-height:43px!important;padding:8px 10px!important;border:1px solid transparent!important;
+ border-radius:11px!important;background:transparent!important;color:#686b62!important;
+ text-align:left!important;text-decoration:none!important;box-shadow:none!important;
+ transform:none!important;transition:background .15s ease,color .15s ease!important;
+}
+.side-nav-item:hover{background:#e4e4dc!important;border-color:transparent!important;color:#30372f!important;transform:none!important}
+.side-nav-item.is-active{
+ background:#fffefa!important;border-color:#e7e4dc!important;color:#30372f!important;
+ box-shadow:inset 3px 0 #71866f!important;
+}
+.side-nav-item strong{font-size:11px!important;font-weight:650!important;color:inherit!important}
+.side-nav-item small{font-size:10px!important;color:#929388!important}
+.side-nav-icon{
+ width:29px!important;height:29px!important;flex:0 0 29px!important;display:grid!important;place-items:center!important;
+ border:1px solid #e4e2d9!important;border-radius:9px!important;background:#f8f7f2!important;
+ color:#687b68!important;font-size:14px!important;box-shadow:none!important;animation:none!important;
+}
+.is-active .side-nav-icon{background:#edf1e9!important;border-color:#dfe6dc!important;color:#536b55!important}
+.nav-arrow{margin-left:auto!important;color:#a1a296!important}
+.sidebar-divider{height:1px!important;margin:13px 2px!important;background:#dedbd2!important}
+.mia-sidebar .section-label{margin:18px 4px 8px!important;color:#85887c!important}
+.mia-sidebar .tool-grid{gap:7px!important}
+.mia-sidebar .tool-card{
+ min-height:70px!important;padding:10px!important;border-radius:11px!important;
+ background:#f8f7f2!important;border:1px solid #e4e1d8!important;color:#34372f!important;
+ box-shadow:none!important;transform:none!important;
+}
+.mia-sidebar .tool-card:hover{background:#fffefa!important;border-color:#cbd6c8!important;transform:translateY(-1px)!important;box-shadow:none!important}
+.mia-sidebar .tool-icon{color:#71836d!important;font-size:16px!important}
+.mia-sidebar .tool-card strong{font-size:10px!important;color:#393c35!important}
+.mia-sidebar .tool-card small{font-size:9px!important;color:#85877d!important}
+.mia-sidebar .tool-note{background:#e7e6de!important;border:1px solid #dedbd2!important;color:#77796f!important}
+.mia-sidebar details{background:#f8f7f2!important;border:1px solid #e2dfd6!important;border-radius:11px!important}
+.mia-sidebar details summary{color:#586b58!important}
+.chat#chatPanel{
+ min-width:0!important;min-height:0!important;height:100%!important;max-height:100%!important;
+ display:grid!important;grid-template-rows:auto minmax(0,1fr) auto!important;
+ overflow:hidden!important;padding:0!important;border-radius:19px!important;
+ background:#fffefa!important;border:1px solid #e7e3da!important;
+ box-shadow:0 8px 28px rgba(44,43,34,.045)!important;
+}
+.chathead{
+ position:relative!important;display:flex!important;align-items:center!important;justify-content:space-between!important;
+ min-height:58px!important;padding:15px 24px!important;border-bottom:1px solid #eeeae2!important;
+ background:#fffefa!important;
+}
+.chathead:after{display:none!important}
+.chathead h2{margin:0!important;color:#666c60!important;font-size:10px!important;font-weight:750!important;letter-spacing:.14em!important}
+.chathead .tiny,#model{color:#8a8b80!important;font-size:10px!important}
+.messages{
+ min-height:0!important;height:100%!important;max-height:none!important;overflow-y:auto!important;
+ padding:28px clamp(18px,5vw,72px)!important;gap:20px!important;
+ display:flex!important;flex-direction:column!important;
+ background:#fffefa!important;scrollbar-width:thin!important;scrollbar-color:#d8d6cd transparent!important;
+}
+.empty{
+ max-width:520px!important;margin:auto!important;padding:30px 18px!important;text-align:center!important;
+ color:#77796f!important;font-size:14px!important;line-height:1.8!important;
+}
+.empty:before,.empty:after{display:none!important;content:none!important;animation:none!important}
+.empty strong{display:block!important;margin-bottom:8px!important;color:#34382f!important;font-size:22px!important;font-weight:650!important;letter-spacing:-.04em!important}
+.empty p{margin:0 auto 18px!important;color:#77796f!important;font-size:13px!important;line-height:1.8!important}
+.welcome-prompts{display:flex!important;flex-wrap:wrap!important;justify-content:center!important;gap:8px!important;margin-top:18px!important}
+.welcome-prompts button{
+ padding:9px 12px!important;border:1px solid #e5e3da!important;border-radius:999px!important;
+ background:#f8f7f2!important;color:#62675d!important;font-size:11px!important;font-weight:550!important;
+ box-shadow:none!important;
+}
+.welcome-prompts button:hover{background:#edf1e9!important;border-color:#d8e1d5!important;box-shadow:none!important}
+.bubble{
+ display:block!important;max-width:min(82%,850px)!important;margin:0!important;padding:14px 17px!important;
+ border-radius:16px!important;white-space:pre-wrap!important;overflow-wrap:anywhere!important;
+ font:14px/1.75 Inter,ui-sans-serif,system-ui,sans-serif!important;letter-spacing:0!important;
+ box-shadow:none!important;
+}
+.user{
+ align-self:flex-end!important;background:#edf1e9!important;border:1px solid #e2e9df!important;
+ border-radius:16px 16px 5px 16px!important;color:#30372f!important;
+}
+.assistant{
+ align-self:flex-start!important;background:transparent!important;border:0!important;
+ border-radius:0!important;color:#30322d!important;padding:10px 2px!important;
+ max-width:min(92%,900px)!important;
+}
+.error{align-self:flex-start!important;background:#fff0ed!important;border:1px solid #f1d4ce!important;color:#8f3932!important;border-radius:12px!important}
+.assistant h3{color:#34382f!important}
+.assistant code{background:#f0efe9!important;color:#455344!important}
+.assistant .rz-code-block{background:#292f2a!important;border:1px solid #41483f!important;border-radius:12px!important}
+.assistant .rz-code-head{background:#343b34!important;color:#e8ebe3!important}
+.assistant .rz-copy-code{background:#596b57!important;color:#fff!important;border-color:#71836d!important}
+.assistant pre code{background:transparent!important;color:#f0f1eb!important}
+.composer{
+ position:relative!important;z-index:2!important;width:100%!important;
+ padding:12px clamp(14px,3.8vw,54px) 16px!important;
+ border-top:1px solid #eeeae2!important;border-radius:0 0 19px 19px!important;
+ background:rgba(255,254,250,.98)!important;box-shadow:0 -8px 22px rgba(44,43,34,.025)!important;
+}
+.composer:before{content:none!important;display:none!important}
+.voice-row{display:flex!important;align-items:center!important;gap:8px!important;margin:0 0 9px!important}
+.voice-row label{color:#85877d!important;font-size:10px!important}
+.voice-row select{width:auto!important;max-width:180px!important;padding:6px 9px!important;font-size:11px!important}
+.voice-row button{padding:7px 10px!important;font-size:10px!important}
+.voice-mode-state{background:#f3f4ef!important;border:1px solid #e4e7df!important;color:#777c70!important;font-size:9px!important}
+.voice-status{color:#657c63!important}
+.live-transcript{background:#f4f5ef!important;border:1px solid #e2e7dd!important;color:#4e624d!important}
+.quickbar{display:flex!important;flex-wrap:wrap!important;gap:6px!important;margin:0 0 8px!important}
+.quickbar button{
+ padding:6px 10px!important;border:1px solid #e5e3da!important;border-radius:999px!important;
+ background:#f8f7f2!important;color:#74776c!important;font-size:10px!important;font-weight:550!important;box-shadow:none!important;
+}
+.quickbar button:hover{background:#edf1e9!important;border-color:#d8e1d5!important;box-shadow:none!important}
+.compose-row{display:flex!important;align-items:flex-end!important;gap:9px!important}
+.compose-row textarea{
+ min-height:48px!important;max-height:160px!important;resize:vertical!important;padding:13px 15px!important;
+ border:1px solid #e2e0d8!important;border-radius:15px!important;background:#f8f7f2!important;
+ color:#292d27!important;font:14px/1.6 Inter,ui-sans-serif,system-ui,sans-serif!important;
+ box-shadow:none!important;
+}
+.compose-row textarea::placeholder{color:#a0a095!important}
+.compose-row textarea:focus{border-color:#9eae9a!important;box-shadow:0 0 0 3px rgba(112,135,107,.12)!important}
+.compose-row button{
+ min-height:48px!important;min-width:66px!important;padding:10px 16px!important;border:0!important;
+ border-radius:13px!important;background:#536b55!important;color:#fff!important;
+ font-size:12px!important;font-weight:650!important;box-shadow:none!important;
+}
+.compose-row button:hover:not(:disabled){background:#435a45!important;box-shadow:none!important}
+.compose-row #mic{min-width:46px!important;background:#f0f1eb!important;color:#586c57!important;border:1px solid #e2e5dc!important}
+.composer .tiny{margin-top:7px!important;color:#a0a095!important;font-size:9px!important}
+input,textarea,select{
+ border:1px solid #e2e0d8!important;background:#fffefa!important;color:#30332d!important;border-radius:10px!important;
+}
+button{font-family:inherit!important;cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #8b9f86!important;outline-offset:3px!important}
+.secondary{background:#f1f1eb!important;border:1px solid #e1e1d8!important;color:#555d51!important}
+#miaNavToggle{background:#f0f1eb!important;border:1px solid #e2e4db!important;color:#5e705b!important}
+#creatorWorkspace{background:#fffefa!important;border-color:#e7e3da!important;color:#30332d!important}
+@media(max-width:900px){
+ .wrap{padding:12px!important;gap:10px!important}
+ .head{min-height:54px!important;padding-bottom:10px!important;gap:9px!important}
+ .head p{display:none!important}
+ .head h1{font-size:19px!important}
+ .brand-tag{display:none!important}
+ .layout#miaAppLayout{grid-template-columns:220px minmax(0,1fr)!important;gap:10px!important}
+ .mia-sidebar{padding:11px!important}
+ .messages{padding:20px 18px!important}
+ .bubble{max-width:92%!important}
+}
+@media(max-width:680px){
+ .wrap{height:100dvh!important;min-height:100dvh!important;padding:9px!important;gap:8px!important}
+ .head{min-height:48px!important;padding:0 2px 8px!important}
+ .head .logo{width:36px!important;height:36px!important;border-radius:11px!important}
+ .head .status{display:none!important}
+ .layout#miaAppLayout{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;gap:8px!important}
+ .mia-sidebar{height:auto!important;max-height:118px!important;padding:7px!important;overflow:auto!important}
+ .mia-side-nav{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:4px!important}
+ .nav-kicker,.mia-sidebar .section-label,.mia-sidebar .tool-grid,.mia-sidebar .tool-note,.mia-sidebar #accountConnect,.mia-sidebar details,.mia-sidebar hr{display:none!important}
+ .side-nav-item{justify-content:center!important;min-height:36px!important;padding:5px!important;gap:5px!important}
+ .side-nav-item>span:nth-child(2){display:none!important}
+ .side-nav-icon{width:25px!important;height:25px!important;flex-basis:25px!important}
+ .nav-arrow{display:none!important}
+ .chat#chatPanel{height:100%!important;min-height:0!important}
+ .chathead{min-height:44px!important;padding:10px 14px!important}
+ .messages{padding:16px 12px!important;gap:14px!important}
+ .bubble{max-width:95%!important;font-size:13px!important}
+ .assistant{max-width:98%!important}
+ .composer{padding:9px 10px calc(9px + env(safe-area-inset-bottom))!important}
+ .voice-row{gap:5px!important;flex-wrap:wrap!important}
+ .voice-row label:first-child{display:none!important}
+ .voice-row select{max-width:130px!important}
+ .voice-row button{padding:6px 8px!important}
+ .quickbar{gap:4px!important}
+ .quickbar button{font-size:9px!important;padding:5px 8px!important}
+ .compose-row{gap:6px!important}
+ .compose-row textarea{min-height:44px!important;padding:10px!important;font-size:13px!important}
+ .compose-row button{min-width:50px!important;min-height:44px!important;padding:8px 10px!important}
+ .compose-row #mic{min-width:40px!important}
+ .composer .tiny{display:none!important}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
 </head><body><main class="wrap"><header class="head"><div class="logo" aria-label="MIA assistant">MIA</div><div><div class="eyebrow">PERSONAL INTELLIGENCE SYSTEM</div><h1>MIA <span class="brand-tag">RZ AGENT</span></h1><p>Your personal intelligence partner · curious, capable, and ready to work</p></div><a class="brand-tag" href="/settings/mcp" style="text-decoration:none;padding:8px 10px">RZ MCP + PLUGINS ↗</a><a class="brand-tag" href="/tools" style="text-decoration:none;padding:8px 10px">WEB TOOL CENTER ↗</a><button class="secondary" id="installPwa" type="button" hidden title="Install RZ-AI on this device">＋ Install app</button><button class="nav-toggle secondary" id="miaNavToggle" type="button" aria-expanded="true" aria-controls="miaSidebar" title="Collapse sidebar">☰</button><div class="status"><span class="dot"></span><span id="status">API page loaded</span></div></header>
 <div class="layout" id="miaAppLayout"><aside class="panel mia-sidebar" id="miaSidebar"><nav class="mia-side-nav" aria-label="Main navigation"><div class="nav-kicker">WORKSPACE</div><button type="button" class="side-nav-item is-active" data-mia-nav="chat"><span class="side-nav-icon">⌂</span><span><strong>Command center</strong><small>Chat & live voice</small></span><span class="nav-arrow">↗</span></button><button type="button" class="side-nav-item" data-mia-nav="creator"><span class="side-nav-icon">✎</span><span><strong>Creator studio</strong><small>Projects & drafts</small></span></button><button type="button" class="side-nav-item" data-mia-nav="tasks"><span class="side-nav-icon">☑</span><span><strong>Task tracker</strong><small>Plans & progress</small></span></button><div class="nav-kicker">INTELLIGENCE</div><button type="button" class="side-nav-item" data-mia-nav="research"><span class="side-nav-icon">⌕</span><span><strong>Research</strong><small>Sources & documents</small></span></button><button type="button" class="side-nav-item" data-mia-nav="memory"><span class="side-nav-icon">◈</span><span><strong>Memory</strong><small>Saved context</small></span></button><a class="side-nav-item side-nav-link" href="/tools"><span class="side-nav-icon">▦</span><span><strong>Tool center</strong><small>Integrations & tools</small></span><span class="nav-arrow">↗</span></a><a class="side-nav-item side-nav-link" href="/skills"><span class="side-nav-icon">✧</span><span><strong>Skills & knowledge</strong><small>RZ methods & capabilities</small></span><span class="nav-arrow">↗</span></a><a class="side-nav-item side-nav-link" href="/settings/mcp"><span class="side-nav-icon">⌘</span><span><strong>MCP & plugins</strong><small>Connected capabilities</small></span><span class="nav-arrow">↗</span></a><div class="nav-kicker">PREFERENCES</div><button type="button" class="side-nav-item" data-mia-nav="customize"><span class="side-nav-icon">⚙</span><span><strong>Customize MIA</strong><small>Tone & language</small></span></button><button type="button" class="side-nav-item" data-mia-nav="account"><span class="side-nav-icon">◎</span><span><strong>Account & security</strong><small>Sign in & connection</small></span></button></nav><div class="sidebar-divider"></div><section id="accountConnect"><h2>ACCOUNT / CONNECT</h2><div id="accountFields" hidden><p class="hint">Create an independent RZ Agent account or sign in. Passwords are hashed on the server.</p><label for="accountEmail">Email</label><input id="accountEmail" type="email" autocomplete="email" placeholder="you@example.com"><label for="accountPassword">Password (12+ characters)</label><input id="accountPassword" type="password" autocomplete="current-password" minlength="12" maxlength="256" placeholder="At least 12 characters"><button id="loginAccount" class="secondary full" type="button">Sign in</button><button id="registerAccount" class="secondary full" type="button">Create account</button><button id="logoutAccount" class="secondary full" type="button" hidden>Sign out</button></div><div id="apiKeyFields"><p class="hint">Local mode: paste the RZ_API_KEY value from your .env file. The key stays in this page memory only.</p><label for="apiKey">RZ API key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Paste API key"><button id="toggleKey" class="secondary full" type="button">Show / hide key</button><button id="check" class="secondary full" type="button">Test connection</button></div><p class="hint" id="connection">Checking authentication mode…</p></section><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><h2>SESSION</h2><p class="hint">Messages use a temporary session for conversation context.</p><button id="newChat" class="secondary full" type="button">New conversation</button>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><details id="miaPreferences"><summary style="cursor:pointer;font-weight:700">CUSTOMIZE MIA</summary><p class="hint">Personalize MIA's tone and response style for this account. These settings do not replace MIA's existing tools or core behavior.</p><label for="miaPersonality">Personality</label><select id="miaPersonality"><option value="balanced">Balanced</option><option value="friendly">Friendly & encouraging</option><option value="professional">Professional</option><option value="concise">Concise</option><option value="creative">Creative</option></select><label for="miaLength">Response detail</label><select id="miaLength"><option value="concise">Concise</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select><label for="miaLanguage">Preferred language</label><select id="miaLanguage"><option value="auto">Match conversation</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="pt">Portuguese</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ur">Urdu</option><option value="ru">Russian</option><option value="ja">Japanese</option><option value="ko">Korean</option></select><label for="miaInstructions">Additional instructions (optional)</label><textarea id="miaInstructions" rows="4" maxlength="1200" placeholder="For example: use practical examples and explain technical terms."></textarea><button id="loadMiaPreferences" class="secondary full" type="button">Load saved preferences</button><button id="saveMiaPreferences" class="full" type="button">Save MIA preferences</button><p id="miaPreferencesStatus" class="tiny" role="status"></p></details><p class="tiny">API docs: <a class="link" href="/docs">/docs</a> · MCP: <a class="link" href="/mcp">/mcp</a> · Health: <a class="link" href="/health">/health</a></p>
