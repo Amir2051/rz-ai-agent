@@ -149,3 +149,50 @@ def test_story_generation_validates_length(app):
         json={"story_notes": "A story begins.", "length": "unlimited"},
     )
     assert response.status_code == 422
+
+
+def test_marketing_plan_uses_extracted_company_research_and_returns_brand_assets(app, monkeypatch):
+    from types import SimpleNamespace
+    from app import business_studio as studio
+    captured = {}
+    async def fake_research(url, api_key):
+        assert url == "https://example.com"
+        assert api_key == "firecrawl-test-key"
+        return {
+            "status": "ok", "url": url, "domain": "example.com", "business_name": "Example Works",
+            "description": "A local home services company.",
+            "brand_assets": {"logo": "https://example.com/logo.png", "og_image": "https://example.com/cover.jpg", "images": ["https://example.com/team.jpg"]},
+            "page_count": 2,
+            "pages": [{"url": url, "title": "Example Works", "markdown": "We provide plumbing and heating services."}],
+        }
+    def fake_complete(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(reply="# 90-day plan\\n\\nBuild local search visibility.")
+    monkeypatch.setattr(studio, "research_company", fake_research)
+    monkeypatch.setattr(app, "FIRECRAWL_API_KEY", "firecrawl-test-key")
+    monkeypatch.setattr(app, "_complete_message", fake_complete)
+    response = TestClient(app.app).post(
+        "/v1/business/marketing/plan",
+        headers={"X-API-Key": "test-key"},
+        json={"url": "https://example.com", "objective": "leads", "platforms": ["Facebook", "Google"]},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["business"]["name"] == "Example Works"
+    assert data["research"]["brand_assets"]["logo"].endswith("logo.png")
+    assert data["research"]["brand_assets"]["images"] == ["https://example.com/team.jpg"]
+    assert "Example Works" in captured["user_content"]
+    assert "https://example.com/logo.png" in captured["user_content"]
+    assert "90-day marketing plan" in captured["user_content"]
+    assert data["published"] is False
+
+
+def test_company_research_filters_brand_assets_to_public_https():
+    from app.business_studio import _page_assets
+    metadata, images = _page_assets({
+        "metadata": {"favicon": "https://example.com/favicon.ico", "logo": "http://example.com/logo.png"},
+        "images": ["https://cdn.example.net/brand.jpg", "http://example.com/private.png", "https://127.0.0.1/bad.png"],
+        "markdown": "![hero](https://example.com/hero.webp)",
+    }, "example.com")
+    assert metadata == {"favicon": "https://example.com/favicon.ico"}
+    assert images == ["https://cdn.example.net/brand.jpg", "https://example.com/hero.webp"]
