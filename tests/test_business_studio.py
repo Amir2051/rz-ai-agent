@@ -47,7 +47,7 @@ def test_company_research_only_keeps_same_domain_pages(monkeypatch):
     async def fake_execute(name, args, api_key):
         calls.append((name, args["url"] if "url" in args else args["query"]))
         if name == "firecrawl_scrape":
-            return json.dumps({"url": args["url"], "title": "Example", "markdown": "Public page content"})
+            return json.dumps({"url": args["url"], "title": "Example", "markdown": "Public page content", "screenshot": "https://cdn.firecrawl.dev/example.png"})
         return json.dumps({"results": [
             {"url": "https://example.com/about"},
             {"url": "https://www.example.com/team"},
@@ -59,6 +59,8 @@ def test_company_research_only_keeps_same_domain_pages(monkeypatch):
     assert result["page_count"] == 3
     assert all("evil.example.net" not in page["url"] for page in result["pages"])
     assert all(page["url"].startswith("https://") for page in result["pages"])
+    assert len(result["screenshots"]) == 3
+    assert all(item["image"].startswith("https://cdn.firecrawl.dev/") for item in result["screenshots"])
 
 
 def test_ad_draft_is_not_published_and_uses_model_draft(app, monkeypatch):
@@ -154,7 +156,7 @@ def test_story_generation_validates_length(app):
 def test_marketing_plan_uses_extracted_company_research_and_returns_brand_assets(app, monkeypatch):
     from types import SimpleNamespace
     from app import business_studio as studio
-    captured = {}
+    captured = []
     async def fake_research(url, api_key):
         assert url == "https://example.com"
         assert api_key == "firecrawl-test-key"
@@ -166,7 +168,7 @@ def test_marketing_plan_uses_extracted_company_research_and_returns_brand_assets
             "pages": [{"url": url, "title": "Example Works", "markdown": "We provide plumbing and heating services."}],
         }
     def fake_complete(**kwargs):
-        captured.update(kwargs)
+        captured.append(kwargs)
         return SimpleNamespace(reply="# 90-day plan\\n\\nBuild local search visibility.")
     monkeypatch.setattr(studio, "research_company", fake_research)
     monkeypatch.setattr(app, "FIRECRAWL_API_KEY", "firecrawl-test-key")
@@ -181,9 +183,11 @@ def test_marketing_plan_uses_extracted_company_research_and_returns_brand_assets
     assert data["business"]["name"] == "Example Works"
     assert data["research"]["brand_assets"]["logo"].endswith("logo.png")
     assert data["research"]["brand_assets"]["images"] == ["https://example.com/team.jpg"]
-    assert "Example Works" in captured["user_content"]
-    assert "https://example.com/logo.png" in captured["user_content"]
-    assert "90-day marketing plan" in captured["user_content"]
+    assert "Example Works" in captured[0]["user_content"]
+    assert "https://example.com/logo.png" in captured[0]["user_content"]
+    assert "90-day marketing plan" in captured[0]["user_content"]
+    assert "customer-facing landing-page copy" in captured[1]["user_content"]
+    assert data["marketing_page_copy"].startswith("# 90-day plan")
     assert data["published"] is False
 
 
