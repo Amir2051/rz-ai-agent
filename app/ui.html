@@ -1229,4 +1229,136 @@ $('newChat').onclick=()=>{sessionId=null;$('messages').replaceChildren();const e
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();
 </script>
+<style id="mia-vibrant-console-v2">
+/* MIA V2 — saturated midnight palette, with the prompt dock anchored at the bottom. */
+:root{
+ color-scheme:dark!important;
+ --v-bg:#080b1b;--v-panel:#11162b;--v-panel2:#171d38;--v-line:#303b67;
+ --v-text:#f2f4ff;--v-muted:#a5afd2;--v-cyan:#50e6ff;--v-blue:#568bff;
+ --v-violet:#a77bff;--v-pink:#ff70bd;--v-teal:#45e0c1;--v-orange:#ffb36b;
+}
+html,body{min-height:100%!important;background:#080b1b!important;color:var(--v-text)!important}
+body{
+ background:radial-gradient(ellipse at 12% 0%,#283b83 0%,transparent 34%),
+ radial-gradient(ellipse at 92% 18%,#55276f 0%,transparent 32%),
+ radial-gradient(ellipse at 50% 100%,#123f59 0%,transparent 42%),#080b1b!important;
+ color:var(--v-text)!important;
+}
+body:before{display:block!important;opacity:.2!important;background-image:linear-gradient(#91a8ff0a 1px,transparent 1px),linear-gradient(90deg,#91a8ff0a 1px,transparent 1px)!important}
+.wrap{height:100dvh!important;min-height:100dvh!important;max-width:none!important;padding:18px clamp(12px,2vw,30px) 38px!important;gap:14px!important}
+.head{border-bottom:1px solid #6574bd55!important;padding:0 4px 13px!important}
+.head .logo{background:linear-gradient(140deg,#43dfff,#627aff 48%,#bd6cff)!important;color:#081225!important;box-shadow:0 8px 30px #5c80ff55,0 0 24px #4fe5ff44!important;border:1px solid #b4eaff55!important}
+.head h1{color:#f7f5ff!important;background:linear-gradient(95deg,#fff,#a9c5ff 45%,#e4a8ff)!important;background-clip:text!important;-webkit-background-clip:text!important;-webkit-text-fill-color:transparent!important}
+.head p{color:#a8b7e2!important}.eyebrow{color:#65e9ff!important}
+.brand-tag{background:linear-gradient(100deg,#172b55,#38245e)!important;border:1px solid #637ce6!important;color:#bfeaff!important}
+.head .status{background:#111a35dd!important;border:1px solid #40538d!important;color:#c4d4ff!important}
+.dot{background:#4ce4b3!important;box-shadow:0 0 12px #4ce4b3!important}
+.mia-theme-toggle{background:linear-gradient(110deg,#173b63,#462a71)!important;border:1px solid #627fe5!important;color:#f4f4ff!important}
+.layout#miaAppLayout{grid-template-columns:270px minmax(0,1fr)!important;gap:16px!important;min-height:0!important}
+.mia-sidebar{
+ background:linear-gradient(160deg,#1b2850f5 0%,#171a3bf5 48%,#25204bf5 100%)!important;
+ border:1px solid #5969b7!important;border-radius:19px!important;color:#edf1ff!important;
+ box-shadow:0 18px 55px #03061588,inset 0 1px #dbe4ff20!important;
+}
+.nav-kicker,.section-label,.mia-sidebar .section-label{color:#8da7ff!important}
+.side-nav-item{color:#b9c4eb!important;border:1px solid transparent!important;border-radius:11px!important;background:#ffffff05!important}
+.side-nav-item:hover{background:linear-gradient(100deg,#264b7b88,#563d8588)!important;border-color:#718cf766!important;color:#fff!important}
+.side-nav-item.is-active{background:linear-gradient(105deg,#176d91,#5142a2 65%,#813e91)!important;border:1px solid #82dcff!important;color:#fff!important;box-shadow:0 7px 22px #3d6ee955,inset 0 1px #ffffff35!important}
+.side-nav-item strong{color:inherit!important}.side-nav-item small{color:#b2c3ec!important}
+.side-nav-icon{background:linear-gradient(145deg,#214d75,#493878)!important;border:1px solid #698ed4!important;color:#75edff!important}
+.is-active .side-nav-icon{background:linear-gradient(140deg,#54e5f6,#a78bff)!important;color:#121936!important;border-color:#d5faff!important}
+.sidebar-divider{background:linear-gradient(90deg,transparent,#697ed0,transparent)!important}
+.mia-sidebar .tool-card{background:linear-gradient(145deg,#1d3c65,#332653)!important;border:1px solid #526bb0!important;color:#f1f4ff!important;box-shadow:0 6px 16px #050a2480!important}
+.mia-sidebar .tool-card:nth-child(3n+1){background:linear-gradient(145deg,#174b60,#253a70)!important}
+.mia-sidebar .tool-card:nth-child(3n+2){background:linear-gradient(145deg,#49316e,#263d70)!important}
+.mia-sidebar .tool-card:nth-child(3n){background:linear-gradient(145deg,#55335e,#263d64)!important}
+.mia-sidebar .tool-card strong{color:#fff!important}.mia-sidebar .tool-card small{color:#c3ccef!important}.mia-sidebar .tool-icon{color:#73edff!important}
+.mia-sidebar details{background:#111b39!important;border:1px solid #40548d!important;color:#e8edff!important}
+.chat#chatPanel{
+ display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+ grid-template-rows:auto minmax(0,1fr) auto!important;
+ min-width:0!important;min-height:0!important;height:100%!important;max-height:100%!important;
+ overflow:hidden!important;border-radius:20px!important;
+ background:linear-gradient(150deg,#151d3bfa,#10172dfc 52%,#1c1940fa)!important;
+ border:1px solid #5367b0!important;box-shadow:0 20px 70px #03061599,inset 0 1px #ffffff1a!important;
+}
+.chat:before{opacity:.55!important;background:radial-gradient(ellipse at 20% 0%,#1c9fc033,transparent 45%),radial-gradient(ellipse at 90% 10%,#a14ce533,transparent 42%),repeating-linear-gradient(0deg,transparent 0 47px,#a4b9ff08 48px)!important}
+.chathead{grid-column:1!important;grid-row:1!important;background:linear-gradient(100deg,#1b3560,#34245e 58%,#482a63)!important;border-bottom:1px solid #687bd0!important;min-height:58px!important}
+.chathead h2{color:#a8edff!important}.chathead .tiny,#model{color:#c0cafa!important}
+.messages{grid-column:1!important;grid-row:2!important;min-height:0!important;height:100%!important;max-height:none!important;overflow-y:auto!important;background:transparent!important;padding:26px clamp(16px,4vw,64px)!important;scrollbar-color:#6978c8 transparent!important}
+.empty{color:#c3c9e9!important}.empty:before{background:radial-gradient(circle at 50% 50%,#fff 0 3%,transparent 4% 14%,#57e8ff88 15% 17%,transparent 18% 29%,#9e7bff99 30% 32%,transparent 33% 44%,#ff76c866 45% 47%,transparent 48%),radial-gradient(circle,#254c79,#1c2050 68%)!important;border:1px solid #79dfff!important;box-shadow:0 0 48px #55dfff44,inset 0 0 35px #a77bff55!important}
+.empty strong{color:#fff!important;background:linear-gradient(90deg,#fff,#83eaff,#d3a7ff)!important;background-clip:text!important;-webkit-background-clip:text!important;-webkit-text-fill-color:transparent!important}
+.empty p{color:#b5c4e9!important}
+.welcome-prompts button{background:linear-gradient(120deg,#173c61,#39275f)!important;border:1px solid #587bc5!important;color:#eff8ff!important;box-shadow:0 5px 18px #05091f66!important}
+.welcome-prompts button:nth-child(2n){background:linear-gradient(120deg,#3e2c68,#612e68)!important;border-color:#9a67d4!important}
+.welcome-prompts button:hover{transform:translateY(-2px)!important;border-color:#6ceaff!important;box-shadow:0 8px 24px #3b9eff44!important}
+.bubble{color:#f2f5ff!important}
+.user{background:linear-gradient(125deg,#254b9c,#633f9d 72%,#783b80)!important;border:1px solid #8d9fff!important;border-right:3px solid #61e9ff!important;color:#fff!important;box-shadow:0 8px 26px #05091f77!important}
+.assistant{background:linear-gradient(130deg,#172e4b,#202044 70%,#30234a)!important;border:1px solid #5365a3!important;border-left:3px solid #53e3e9!important;color:#f0f4ff!important;box-shadow:0 8px 24px #05091f55!important}
+.error{background:linear-gradient(120deg,#55283f,#3b244b)!important;border:1px solid #ff8da9!important;color:#ffe5ec!important}
+.assistant h3,.assistant strong{color:#a9edff!important}.assistant a{color:#85dfff!important}.assistant code{background:#27345c!important;color:#b7f5ff!important}
+.assistant .rz-code-block{background:#080f23!important;border:1px solid #5968a8!important}
+.assistant .rz-code-head{background:linear-gradient(90deg,#1a3860,#44285f)!important;color:#e9f5ff!important}
+.assistant .rz-copy-code{background:linear-gradient(100deg,#177e9d,#6750b3)!important;color:#fff!important;border:1px solid #69d9ef!important}
+/* The voice rail is the third grid row, so the composer stays docked below the scrolling transcript. */
+#chatPanel>.voice-rail{grid-column:1!important;grid-row:3!important;display:block!important;align-self:end!important;width:100%!important;min-width:0!important;padding:11px clamp(12px,3vw,42px) 14px!important;border:0!important;border-top:1px solid #6876c8!important;background:linear-gradient(100deg,#101c3b,#25204c 55%,#32204b)!important;box-shadow:0 -12px 32px #05091f66!important}
+#chatPanel>.voice-rail #chatForm{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:8px!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;background:transparent!important;border:0!important}
+#chatPanel>.voice-rail #chatForm:before{content:""!important;display:none!important}
+#chatPanel>.voice-rail .voice-row{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:7px!important;margin:0!important}
+#chatPanel>.voice-rail .voice-row>label:first-child{margin:0 4px 0 0!important;color:#b7c5ed!important}
+#chatPanel>.voice-rail .voice-row select{width:auto!important;max-width:175px!important;background:#151f42!important;color:#eaf3ff!important;border:1px solid #536ab0!important}
+#chatPanel>.voice-rail .voice-row button{width:auto!important;max-width:none!important;background:linear-gradient(110deg,#176d92,#5542a2)!important;color:#fff!important;border:1px solid #6f9be2!important}
+#chatPanel>.voice-rail .voice-row #stopSpeech{background:linear-gradient(110deg,#713d73,#963d67)!important;border-color:#c66da5!important}
+#chatPanel>.voice-rail .voice-mode-state{background:#152b4a!important;border:1px solid #456e9b!important;color:#7cebdc!important}
+#chatPanel>.voice-rail .voice-row label:has(#autoSpeak){color:#c4ccef!important}
+#chatPanel>.voice-rail #liveTranscript{background:#18264b!important;border:1px solid #596db3!important;color:#d8f4ff!important}
+#chatPanel>.voice-rail .quickbar{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;gap:6px!important;margin:0!important}
+#chatPanel>.voice-rail .quickbar button{width:auto!important;flex:0 1 auto!important;background:linear-gradient(110deg,#203d69,#3b2d6d)!important;border:1px solid #566db1!important;color:#dcecff!important}
+#chatPanel>.voice-rail .compose-row{display:grid!important;grid-template-columns:48px minmax(0,1fr) 92px!important;align-items:end!important;gap:9px!important;width:100%!important}
+#chatPanel>.voice-rail .compose-row textarea{grid-column:2!important;grid-row:1!important;width:100%!important;min-width:0!important;min-height:54px!important;max-height:150px!important;resize:vertical!important;padding:13px 16px!important;border-radius:14px!important;background:linear-gradient(120deg,#0b1530,#111d3c)!important;border:1px solid #6079c5!important;color:#fff!important;font:14px/1.6 Inter,system-ui,sans-serif!important;box-shadow:inset 0 2px 12px #03081788,0 0 0 1px #a4b5ff0b!important}
+#chatPanel>.voice-rail .compose-row textarea::placeholder{color:#9caedc!important}
+#chatPanel>.voice-rail .compose-row textarea:focus{border-color:#55e8ff!important;box-shadow:0 0 0 3px #4de4ff2b,0 0 22px #4de4ff20!important}
+#chatPanel>.voice-rail .compose-row #mic{grid-column:1!important;grid-row:1!important;width:48px!important;min-width:48px!important;min-height:54px!important;border-radius:14px!important;background:linear-gradient(145deg,#a34c9b,#6549a6)!important;border:1px solid #d18be5!important;color:#fff!important}
+#chatPanel>.voice-rail .compose-row #send{grid-column:3!important;grid-row:1!important;width:92px!important;min-width:92px!important;min-height:54px!important;border-radius:14px!important;background:linear-gradient(115deg,#37d9e7,#6687ff 55%,#b36dff)!important;border:1px solid #a4f4ff!important;color:#08132b!important;font-weight:800!important;box-shadow:0 7px 24px #4a91ff55!important}
+#chatPanel>.voice-rail .compose-row #send:hover:not(:disabled){filter:brightness(1.12)!important;transform:translateY(-1px)!important}
+#chatPanel>.voice-rail .tiny{color:#8f9fc9!important;text-align:right!important;margin:0!important}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #5deaff!important;outline-offset:3px!important}
+/* A colorful light option, not an all-white canvas. */
+html[data-mia-theme="light"] body{background:radial-gradient(ellipse at 10% 0%,#b9e9ff,transparent 35%),radial-gradient(ellipse at 90% 12%,#e4c3ff,transparent 36%),linear-gradient(140deg,#d8e8ff,#e7dafa 60%,#c8f3ee)!important;color:#1b2d55!important}
+html[data-mia-theme="light"] .mia-sidebar{background:linear-gradient(155deg,#d7e7ff,#e5d9fb 55%,#c8e9f0)!important;border-color:#a5b7e7!important;color:#23345e!important}
+html[data-mia-theme="light"] .side-nav-item{color:#34476f!important}
+html[data-mia-theme="light"] .chat#chatPanel{background:linear-gradient(145deg,#e3efff,#e9e1fb 55%,#d4f1f3)!important;border-color:#9aace0!important}
+html[data-mia-theme="light"] .chathead{background:linear-gradient(100deg,#a8dff5,#c7b6f3,#efbfe4)!important}
+html[data-mia-theme="light"] .chathead h2,html[data-mia-theme="light"] .chathead .tiny{color:#24335f!important}
+html[data-mia-theme="light"] .empty strong{-webkit-text-fill-color:transparent!important}
+html[data-mia-theme="light"] .empty p{color:#53678f!important}
+html[data-mia-theme="light"] .bubble{color:#fff!important}
+html[data-mia-theme="light"] #chatPanel>.voice-rail{background:linear-gradient(100deg,#bddcf8,#d4c6f1,#bde9e8)!important;border-top-color:#879fdb!important}
+html[data-mia-theme="light"] #chatPanel>.voice-rail .voice-row>label:first-child,html[data-mia-theme="light"] #chatPanel>.voice-rail .voice-row label:has(#autoSpeak){color:#33456f!important}
+html[data-mia-theme="light"] #chatPanel>.voice-rail .tiny{color:#4d608b!important}
+@media(max-width:900px){.wrap{padding:11px 11px 38px!important}.layout#miaAppLayout{grid-template-columns:220px minmax(0,1fr)!important;gap:10px!important}}
+@media(max-width:680px){
+ .wrap{height:100dvh!important;min-height:100dvh!important;padding:8px!important;gap:8px!important}
+ .head{min-height:48px!important}.head h1{font-size:18px!important}.head .status{display:none!important}
+ .layout#miaAppLayout{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;gap:8px!important}
+ .mia-sidebar{height:auto!important;max-height:108px!important;padding:7px!important;overflow:auto!important}
+ .mia-side-nav{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:4px!important}
+ .nav-kicker,.mia-sidebar .section-label,.mia-sidebar .tool-grid,.mia-sidebar .tool-note,.mia-sidebar #accountConnect,.mia-sidebar details,.mia-sidebar hr{display:none!important}
+ .side-nav-item{justify-content:center!important;min-height:34px!important;padding:4px!important}.side-nav-item>span:nth-child(2){display:none!important}.nav-arrow{display:none!important}
+ .chat#chatPanel{height:100%!important;min-height:0!important;grid-template-rows:auto minmax(0,1fr) auto!important}
+ .messages{padding:14px 10px!important}.bubble{max-width:96%!important}
+ #chatPanel>.voice-rail{padding:8px 9px calc(8px + env(safe-area-inset-bottom))!important}
+ #chatPanel>.voice-rail .voice-row{gap:5px!important}
+ #chatPanel>.voice-rail .voice-row>label:first-child{display:none!important}
+ #chatPanel>.voice-rail .voice-row select{max-width:125px!important}
+ #chatPanel>.voice-rail .voice-row button{padding:6px 8px!important;font-size:10px!important}
+ #chatPanel>.voice-rail .quickbar button{font-size:9px!important;padding:5px 8px!important}
+ #chatPanel>.voice-rail .compose-row{grid-template-columns:40px minmax(0,1fr) 66px!important;gap:6px!important}
+ #chatPanel>.voice-rail .compose-row textarea{min-height:48px!important;padding:10px!important;font-size:13px!important}
+ #chatPanel>.voice-rail .compose-row #mic{width:40px!important;min-width:40px!important;min-height:48px!important}
+ #chatPanel>.voice-rail .compose-row #send{width:66px!important;min-width:66px!important;min-height:48px!important}
+ #chatPanel>.voice-rail .tiny{display:none!important}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
 </body></html>
