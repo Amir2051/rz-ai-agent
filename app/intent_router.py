@@ -26,6 +26,8 @@ _EXPLICIT_AGENT_CUES = (
     "write the code", "create a function", "create a script", "refactor this",
     "write javascript", "write a python", "add a feature", "develop a feature",
     "implement a", "build me", "train a model", "training loop", "coding agent",
+    "research this company", "research this company website", "company website", "analyze this company website",
+    "analyze this website", "review this company's website", "look into this company",
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",

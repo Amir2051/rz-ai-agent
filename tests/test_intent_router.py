@@ -48,3 +48,9 @@ def test_coding_and_machine_learning_requests_use_agent_loop():
     assert should_use_agent_tools("Write code for a neural network in PyTorch")
     assert should_use_agent_tools("Implement a Python API endpoint and tests")
     assert should_use_agent_tools("Debug this JavaScript function")
+
+
+def test_company_website_research_routes_through_agent_tools():
+    from app.intent_router import should_use_agent_tools
+    assert should_use_agent_tools("Research this company website: https://example.com")
+    assert should_use_agent_tools("Analyze this website https://example.com")
