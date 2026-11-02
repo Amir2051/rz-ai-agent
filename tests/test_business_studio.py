@@ -104,3 +104,48 @@ def test_empty_length_completion_retries_same_provider_with_more_tokens(app, mon
     response = app._complete_message("", "Please give me a detailed answer.", "test-user:retry", None, 0.2, 6000)
     assert response.reply == "Recovered full answer"
     assert calls == [6000, 12000]
+
+
+def test_story_generation_returns_a_draft_and_preserves_character_bible(app, monkeypatch):
+    from types import SimpleNamespace
+    captured = {}
+    def fake_complete(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(reply="# The Moonlit Road\n\nAmara opened the gate.")
+    monkeypatch.setattr(app, "_complete_message", fake_complete)
+    response = TestClient(app.app).post(
+        "/v1/business/story",
+        headers={"X-API-Key": "test-key"},
+        json={
+            "title": "The Moonlit Road",
+            "story_notes": "Amara discovers a hidden road beneath the city.",
+            "characters": "Amara: brave, silver hair, loyal to her brother.",
+            "genre": "Fantasy",
+            "length": "medium",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "draft"
+    assert data["characters_preserved"] is True
+    assert data["word_count"] > 0
+    assert "Amara" in captured["user_content"]
+    assert "silver hair" in captured["user_content"]
+    assert "preserve every named character" in captured["user_content"].lower()
+
+
+def test_story_generation_requires_authentication(app):
+    response = TestClient(app.app).post(
+        "/v1/business/story",
+        json={"story_notes": "A story begins."},
+    )
+    assert response.status_code == 401
+
+
+def test_story_generation_validates_length(app):
+    response = TestClient(app.app).post(
+        "/v1/business/story",
+        headers={"X-API-Key": "test-key"},
+        json={"story_notes": "A story begins.", "length": "unlimited"},
+    )
+    assert response.status_code == 422
