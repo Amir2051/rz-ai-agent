@@ -1323,6 +1323,9 @@ body:before{display:block!important;opacity:.2!important;background-image:linear
 #chatPanel>.voice-rail .compose-row #send:hover:not(:disabled){filter:brightness(1.12)!important;transform:translateY(-1px)!important}
 #chatPanel>.voice-rail .tiny{color:#8f9fc9!important;text-align:right!important;margin:0!important}
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #5deaff!important;outline-offset:3px!important}
+/* Restore transcript scrolling: an older full-output rule used #messages.messages { overflow:visible!important }. */
+#chatPanel>#messages.messages{min-height:0!important;height:100%!important;max-height:none!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;scrollbar-gutter:stable!important}
+
 /* A colorful light option, not an all-white canvas. */
 html[data-mia-theme="light"] body{background:radial-gradient(ellipse at 10% 0%,#b9e9ff,transparent 35%),radial-gradient(ellipse at 90% 12%,#e4c3ff,transparent 36%),linear-gradient(140deg,#d8e8ff,#e7dafa 60%,#c8f3ee)!important;color:#1b2d55!important}
 html[data-mia-theme="light"] .mia-sidebar{background:linear-gradient(155deg,#d7e7ff,#e5d9fb 55%,#c8e9f0)!important;border-color:#a5b7e7!important;color:#23345e!important}
