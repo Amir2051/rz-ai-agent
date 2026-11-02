@@ -550,8 +550,8 @@ def create_agent_run(user_id: str, session_id: str, user_request: str) -> dict:
         raise ValueError('invalid user id')
     if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
         raise ValueError('invalid session id')
-    if not isinstance(user_request, str) or not user_request.strip() or len(user_request) > 12000:
-        raise ValueError('request must contain 1–12000 characters')
+    if not isinstance(user_request, str) or not user_request.strip() or len(user_request) > 32000:
+        raise ValueError('request must contain 1–32000 characters')
     run_id, now = uuid.uuid4().hex, time.time()
     conn, kind = _db()
     try:

@@ -318,6 +318,12 @@ def test_agent_run_ledger_validates_bounds(app):
     from app import capabilities
     with pytest.raises(ValueError): capabilities.create_agent_run('', 'session', 'request')
     with pytest.raises(ValueError): capabilities.create_agent_run('alice', 'session', ' ')
+    long_request = 'x' * 32000
+    long_run = capabilities.create_agent_run('alice', 'alice:long-session', long_request)
+    assert long_run['status'] == 'running'
+    assert capabilities.list_agent_runs('alice')['runs'][0]['request'] == long_request
+    with pytest.raises(ValueError, match='1–32000'):
+        capabilities.create_agent_run('alice', 'alice:too-long', long_request + 'x')
     with pytest.raises(ValueError): capabilities.list_agent_runs('alice', True)
     run = capabilities.create_agent_run('alice', 'alice:s', 'request')
     with pytest.raises(ValueError): capabilities.finish_agent_run('alice', run['id'], 'running')
