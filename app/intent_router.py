@@ -28,6 +28,8 @@ _EXPLICIT_AGENT_CUES = (
     "implement a", "build me", "train a model", "training loop", "coding agent",
     "research this company", "research this company website", "company website", "analyze this company website",
     "analyze this website", "review this company's website", "look into this company",
+    "use browserbase", "use firecrawl", "browse this website", "inspect this website", "extract this website",
+    "website research", "marketing research", "research this public website", "browse the company website",
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
@@ -46,6 +48,7 @@ _ACTION_PATTERNS = (
     r"\b(?:run|perform|execute|start)\b.{0,60}\b(?:investigation|investigate)\b",
     r"\b(?:implement|build|write|create|debug|fix|refactor|code|program)\b.{0,55}\b(?:function|script|app|feature|api|model|neural network|machine learning|python|javascript|typescript|class|module|algorithm|test)\b",
     r"\b(?:neural network|machine learning|deep learning|pytorch|tensorflow|scikit.learn)\b",
+    r"\b(?:browse|inspect|extract|research)\b.{0,45}\b(?:website|webpage|public site|company site)\b",
 )
 
 

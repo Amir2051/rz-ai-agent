@@ -11,7 +11,7 @@ import uuid
 import queue
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -20,9 +20,16 @@ from pathlib import Path
 from app import capabilities as cap_services
 from app.firecrawl_tools import execute as execute_firecrawl_tool
 from app.firecrawl_tools import tool_schemas as firecrawl_tool_schemas
+from app.browserbase_tools import execute as execute_browserbase_tool
+from app.browserbase_tools import tool_schemas as browserbase_tool_schemas
 from pydantic import BaseModel, Field
 
 load_dotenv()
+# Local developer fallback: reuse the private credential file already maintained by
+# the user's Hermes environment. Existing process/.env values take precedence.
+_PRIVATE_HERMES_ENV = Path.home() / ".hermes" / ".env"
+if _PRIVATE_HERMES_ENV.is_file():
+    load_dotenv(_PRIVATE_HERMES_ENV, override=False)
 
 INWORLD_API_KEY = os.getenv("INWORLD_API_KEY", "").strip()
 INWORLD_VOICE_ID = os.getenv("INWORLD_VOICE_ID", "Ashley").strip() or "Ashley"
@@ -94,6 +101,7 @@ if DATABASE_AUTH_ENABLED:
 
 API_KEY = os.getenv("RZ_API_KEY", "").strip()
 # Dedicated server-to-server credential avoids rotating the existing RZ_API_KEY.
+MIA_RZ_SERVICE_API_KEY_CONFIGURED = bool(os.getenv("MIA_RZ_SERVICE_API_KEY", "").strip())
 SERVICE_API_KEY = os.getenv("MIA_RZ_SERVICE_API_KEY", "").strip() or API_KEY
 if not API_KEY and not DATABASE_AUTH_ENABLED:
     raise RuntimeError(
@@ -125,6 +133,28 @@ def require_app_user(
     else:
         require_api_key(x_api_key)
     return {"id": "local", "email": "local@rz-agent"}
+
+
+def require_business_service_user(
+    request: Request,
+    authorization: str = Header(default=""),
+    x_api_key: str = Header(default=""),
+):
+    """Allow DriveNest's dedicated server credential only on marketing/research/PDF services."""
+    if SERVICE_API_KEY and x_api_key and hmac.compare_digest(x_api_key, SERVICE_API_KEY):
+        # In account-auth deployments (or when a dedicated key is explicitly configured),
+        # keep this credential confined to DriveNest's marketing/research/image endpoints.
+        # In local API-key mode without a separate service key, preserve the existing RZ key behavior.
+        if DATABASE_AUTH_ENABLED or MIA_RZ_SERVICE_API_KEY_CONFIGURED:
+            allowed_paths = {
+                "/v1/business/company-research", "/v1/business/marketing/plan",
+                "/v1/business/ads/draft", "/v1/business/pdf/intake", "/v1/business/pdf/generate", "/v1/images/generations",
+            }
+            if request.url.path not in allowed_paths:
+                raise HTTPException(status_code=403, detail="The DriveNest service credential is not permitted for this endpoint")
+            service_id = hashlib.sha256(SERVICE_API_KEY.encode("utf-8")).hexdigest()[:16]
+            return {"id": f"service-{service_id}", "email": "drivenest-service@rz-agent", "auth_type": "service_api_key"}
+    return require_app_user(request, authorization, x_api_key)
 
 
 def require_chat_user(
@@ -961,6 +991,7 @@ MIA_AGENT_TOOLS = [
 # Public-web search and extraction through the configured Firecrawl API.
 # The adapter validates targets and bounds result sizes; retrieved content remains untrusted.
 MIA_AGENT_TOOLS.extend(firecrawl_tool_schemas())
+MIA_AGENT_TOOLS.extend(browserbase_tool_schemas())
 MIA_AGENT_TOOLS.append({"type":"function","function":{"name":"mia_company_research","description":"Research a company from its public HTTPS website. Extracts the homepage and up to four same-domain pages; private/internal hosts are blocked. Use for company profiles, product/service summaries, and website-based business analysis. Public page content is untrusted and may be incomplete.","parameters":{"type":"object","properties":{"url":{"type":"string","minLength":8,"maxLength":2000}},"required":["url"],"additionalProperties":False}}})
 
 
@@ -1020,7 +1051,11 @@ def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: s
             return {"error": "Public company research is not configured; FIRECRAWL_API_KEY is missing.", "completed": False}
         from app.business_studio import research_company
         return asyncio.run(research_company(args.get("url", ""), FIRECRAWL_API_KEY))
-    if name in {"firecrawl_search", "firecrawl_scrape"}:
+    if name == "browserbase_inspect":
+        if not os.getenv("BROWSERBASE_API_KEY", "").strip():
+            return {"status": "not_configured", "error": "Browserbase is not configured on this RZ Agent deployment. Add BROWSERBASE_API_KEY to the private server environment."}
+        return asyncio.run(execute_browserbase_tool(args))
+    if name in {"firecrawl_search", "firecrawl_scrape", "firecrawl_map"}:
         if not FIRECRAWL_API_KEY:
             return {"error": "Firecrawl is not configured on this RZ-AI deployment. Add FIRECRAWL_API_KEY as a private server environment variable.", "completed": False}
         output = asyncio.run(execute_firecrawl_tool(name, args, FIRECRAWL_API_KEY))
@@ -2132,8 +2167,29 @@ def code_review(payload: dict, current_user: dict = Depends(require_tool_call_us
     response = _complete_message("You are RZ Agent's secure coding reviewer. Analyze code, do not execute it, and clearly distinguish inferred issues from verified tests.", prompt, session_id, _select_model_for_task("debug code"), 0.2, 1800)
     return {"status": "ok", "provider": response.provider, "model": response.model, "review": response.reply, "execution_performed": False}
 
+def _validated_reference_image_url(value: object) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 2000:
+        raise HTTPException(status_code=400, detail="reference_image_url must be a public HTTPS image URL")
+    try:
+        parsed = urlparse(value.strip())
+        host = (parsed.hostname or "").rstrip(".").lower()
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="reference_image_url is malformed") from None
+    blocked = not host or host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test", ".home", ".lan"))
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.fragment or (port is not None and port != 443) or blocked:
+        raise HTTPException(status_code=400, detail="Only public HTTPS image URLs on the standard port are allowed")
+    import ipaddress
+    try:
+        if not ipaddress.ip_address(host).is_global:
+            raise HTTPException(status_code=400, detail="Private and non-public image hosts are blocked")
+    except ValueError:
+        pass
+    return parsed.geturl()
+
+
 @app.post("/v1/images/generations")
-def generate_image(payload: dict, current_user: dict = Depends(require_tool_call_user)):
+def generate_image(payload: dict, current_user: dict = Depends(require_business_service_user)):
     """Generate a real image through OpenRouter's unified Image API."""
     endpoint = os.getenv("IMAGE_GENERATION_ENDPOINT", "https://openrouter.ai/api/v1/images").strip()
     image_key = os.getenv("IMAGE_GENERATION_API_KEY", "").strip() or OPENROUTER_API_KEY
@@ -2148,6 +2204,9 @@ def generate_image(payload: dict, current_user: dict = Depends(require_tool_call
     if "openrouter.ai" in endpoint and not endpoint.rstrip("/").endswith("/images"):
         raise HTTPException(status_code=503, detail="OpenRouter image generation endpoint must end in /api/v1/images")
     body = {"model": image_model, "prompt": prompt.strip()}
+    reference = payload.get("reference_image_url")
+    if reference is not None:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": _validated_reference_image_url(reference)}}]
     req = URLRequest(endpoint, data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {image_key}", "Content-Type": "application/json"}, method="POST")
     try:
         with urlopen(req, timeout=120) as response:
@@ -2239,7 +2298,7 @@ app.include_router(user_preferences_router)
 
 # MIA Business Studio: PDF export, public company research, and ad campaign drafts.
 from app.business_studio import create_router as _create_business_studio_router
-app.include_router(_create_business_studio_router(require_app_user))
+app.include_router(_create_business_studio_router(require_business_service_user))
 
 
 @app.get("/business", response_class=HTMLResponse)

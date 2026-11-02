@@ -199,6 +199,33 @@ def test_image_generation_uses_openrouter_image_api_and_shared_key(app,monkeypat
     assert seen['body']=={'model':'bytedance-seed/seedream-4.5','prompt':'a cinematic mountain sunrise'}
     assert seen['timeout']==120
 
+def test_image_generation_accepts_a_public_reference_image(app, monkeypatch):
+    import json
+    seen = {}
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, n=-1): return json.dumps({"data": [{"b64_json": "aGVsbG8="}]}).encode()
+    def fake_urlopen(req, timeout):
+        seen["body"] = json.loads(req.data.decode())
+        return FakeResponse()
+    monkeypatch.setattr(app, "urlopen", fake_urlopen)
+    response = TestClient(app.app).post(
+        "/v1/images/generations", headers={"X-API-Key": "test-key"},
+        json={"prompt": "Improve this childcare center photo without changing its real features", "reference_image_url": "https://images.example.org/classroom.jpg"},
+    )
+    assert response.status_code == 200
+    assert seen["body"]["input_references"] == [{"type": "image_url", "image_url": {"url": "https://images.example.org/classroom.jpg"}}]
+
+
+def test_image_generation_rejects_private_reference_images(app):
+    response = TestClient(app.app).post(
+        "/v1/images/generations", headers={"X-API-Key": "test-key"},
+        json={"prompt": "Enhance this image", "reference_image_url": "https://127.0.0.1/private.png"},
+    )
+    assert response.status_code == 400
+
+
 def test_image_generation_requires_openrouter_key(app,monkeypatch):
     monkeypatch.setattr(app,'OPENROUTER_API_KEY','')
     monkeypatch.delenv('IMAGE_GENERATION_API_KEY',raising=False)
@@ -371,3 +398,39 @@ def test_terminal_approvals_persist_and_are_user_scoped(app):
     capabilities.finish_terminal_approval('alice', job_id, {'status': 'denied', 'message': 'User denied'})
     history = capabilities.list_terminal_approvals('alice', pending_only=False)['jobs']
     assert history[0]['result']['status'] == 'denied'
+
+
+def test_browserbase_tool_schema_and_public_url_validation(app, monkeypatch):
+    from app import browserbase_tools
+    names = [x["function"]["name"] for x in browserbase_tools.tool_schemas()]
+    assert names == ["browserbase_inspect"]
+    assert browserbase_tools._public_url("https://example.com/about")[1] == "example.com"
+    for url in ("http://example.com", "https://127.0.0.1", "https://localhost", "https://example.com:444"):
+        with pytest.raises(ValueError): browserbase_tools._public_url(url)
+    monkeypatch.delenv("BROWSERBASE_API_KEY", raising=False)
+    result = __import__("asyncio").run(browserbase_tools.execute({"url": "https://example.com"}))
+    assert result["status"] == "not_configured"
+
+
+def test_firecrawl_map_tool_is_advertised_and_validates_limits(app):
+    from app.firecrawl_tools import tool_schemas
+    names = [x["function"]["name"] for x in tool_schemas()]
+    assert "firecrawl_search" in names and "firecrawl_map" in names and "firecrawl_scrape" in names
+
+
+def test_marketing_website_requests_route_to_browser_and_firecrawl_tools(app):
+    from app.intent_router import should_use_agent_tools
+    assert should_use_agent_tools("Use Browserbase to inspect this website")
+    assert should_use_agent_tools("Use Firecrawl to map and scrape the company's website")
+    assert should_use_agent_tools("Research this public website and prepare a marketing brief")
+
+
+def test_browser_and_firecrawl_tools_are_offered_to_mia_agent_loop(app, monkeypatch):
+    from app.main import MIA_AGENT_TOOLS, _validate_mia_agent_tool_args
+    names = {tool["function"]["name"] for tool in MIA_AGENT_TOOLS}
+    assert {"browserbase_inspect", "firecrawl_search", "firecrawl_map", "firecrawl_scrape"} <= names
+    _validate_mia_agent_tool_args("browserbase_inspect", {"url": "https://example.com"})
+    _validate_mia_agent_tool_args("firecrawl_map", {"url": "https://example.com", "limit": 25})
+    monkeypatch.delenv("BROWSERBASE_API_KEY", raising=False)
+    result = app._dispatch_mia_agent_tool("browserbase_inspect", {"url": "https://example.com"}, "owner", "session")
+    assert result["status"] == "not_configured"
