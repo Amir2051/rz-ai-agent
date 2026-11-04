@@ -154,3 +154,133 @@ def test_task_model_routing_preserves_default_and_explicit_override(app, monkeyp
     monkeypatch.setattr(app, "OPENROUTER_CODING_MODEL", "example/coding-model")
     assert app._select_model_for_task("Tell me a joke") == "example/default-model"
     assert app._select_model_for_task("Debug this code", "example/manual-model") == "example/manual-model"
+
+
+def test_mcp_initialize_and_tools_list_require_auth(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app, "DATABASE_AUTH_ENABLED", False)
+    monkeypatch.setattr(app, "API_KEY", "test-key")
+    client = TestClient(app.app)
+    unauthorized = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert unauthorized.status_code == 401
+
+    initialized = client.post("/mcp", headers={"Authorization": "Bearer test-key"},
+                              json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert initialized.status_code == 200
+    assert initialized.json()["result"]["serverInfo"]["name"] == "rz-ai-agent"
+
+    listed = client.post("/mcp", headers={"Authorization": "Bearer test-key"},
+                         json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert listed.status_code == 200
+    assert {tool["name"] for tool in listed.json()["result"]["tools"]} == {
+        "chat", "list_conversations", "reset_conversation"
+    }
+
+
+def test_mcp_tools_call_executes_list_and_chat(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app, "DATABASE_AUTH_ENABLED", False)
+    monkeypatch.setattr(app, "API_KEY", "test-key")
+    client = TestClient(app.app)
+    headers = {"Authorization": "Bearer test-key"}
+
+    listed = client.post("/mcp", headers=headers,
+                         json={"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                               "params": {"name": "list_conversations", "arguments": {}}})
+    assert listed.status_code == 200
+    assert listed.json()["result"]["isError"] is False
+    assert '"count": 0' in listed.json()["result"]["content"][0]["text"]
+
+    fake_response = app.ChatResponse(status="ok", reply="tool reply", session_id="local:abc",
+                                     model="test-model", provider="test", history_length=2,
+                                     updated_at="2026-10-21T00:00:00Z")
+    monkeypatch.setattr(app, "_complete_message", lambda **kwargs: fake_response)
+    response = client.post("/mcp", headers=headers,
+                           json={"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                                 "params": {"name": "chat", "arguments": {"message": "hello"}}})
+    assert response.status_code == 200
+    assert response.json()["result"]["isError"] is False
+    assert "tool reply" in response.json()["result"]["content"][0]["text"]
+
+
+def test_rest_tool_and_capabilities_endpoints(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app, "DATABASE_AUTH_ENABLED", False)
+    monkeypatch.setattr(app, "API_KEY", "test-key")
+    client = TestClient(app.app)
+    headers = {"Authorization": "Bearer test-key"}
+    caps = client.get("/v1/capabilities", headers=headers)
+    assert caps.status_code == 200
+    assert caps.json()["mcp"]["endpoint"] == "/mcp"
+    tools = client.get("/v1/tools", headers=headers)
+    assert tools.status_code == 200
+    assert len(tools.json()["tools"]) == 3
+    call = client.post("/v1/tools/list_conversations", headers=headers, json={})
+    assert call.status_code == 200
+    assert call.json()["result"]["count"] == 0
+
+
+def test_tool_calls_cannot_access_other_users_conversations(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app, "DATABASE_AUTH_ENABLED", False)
+    monkeypatch.setattr(app, "API_KEY", "test-key")
+    client = TestClient(app.app)
+    response = client.post("/mcp", headers={"Authorization": "Bearer test-key"},
+                           json={"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                                 "params": {"name": "reset_conversation",
+                                            "arguments": {"session_id": "other-user:secret"}}})
+    assert response.status_code == 200
+    assert response.json()["result"]["isError"] is True
+    assert "not found" in response.json()["result"]["content"][0]["text"].lower() or \
+           "does not belong" in response.json()["result"]["content"][0]["text"].lower()
+
+
+def test_api_token_scope_and_revocation_validation(app, monkeypatch):
+    import app.auth as auth
+
+    class FakeResult:
+        def __init__(self, row):
+            self.row = row
+        def fetchone(self):
+            return self.row
+
+    class FakeConnection:
+        def __init__(self, row):
+            self.row = row
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def execute(self, query, params=()):
+            if query.lstrip().startswith("UPDATE auth_api_tokens"):
+                return FakeResult(("token-id",))
+            return FakeResult(self.row)
+
+    monkeypatch.setattr(auth, "_db", lambda: FakeConnection(("user-1", "user@example.com", ["mcp:read"])))
+    monkeypatch.setattr(auth, "_token_hash", lambda token: "hashed-token")
+    with pytest.raises(HTTPException) as exc:
+        auth.get_user_from_bearer("Bearer rzat_example", "mcp:call")
+    assert exc.value.status_code == 403
+    assert "mcp:call" in exc.value.detail
+
+    monkeypatch.setattr(auth, "_db", lambda: FakeConnection(("user-1", "user@example.com", ["mcp:read", "mcp:call"])))
+    user = auth.get_user_from_bearer("Bearer rzat_example", "mcp:call")
+    assert user["id"] == "user-1"
+    assert user["auth_type"] == "api_token"
+
+
+def test_mcp_initialize_negotiates_supported_protocol_version(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app, "DATABASE_AUTH_ENABLED", False)
+    monkeypatch.setattr(app, "API_KEY", "test-key")
+    client = TestClient(app.app)
+    response = client.post("/mcp", headers={"Authorization": "Bearer test-key"},
+                           json={"jsonrpc": "2.0", "id": 10, "method": "initialize",
+                                 "params": {"protocolVersion": "unsupported-version"}})
+    assert response.status_code == 200
+    assert response.json()["result"]["protocolVersion"] == "2025-03-26"

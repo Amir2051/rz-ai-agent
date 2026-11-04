@@ -47,3 +47,8 @@ When an OpenRouter key is configured, the app will not fall back to Hermes after
 an OpenRouter error, because Hermes' endpoint has not been verified for this
 ZDR requirement. It returns a clear failure instead. Hermes can be used as the
 primary provider only when OpenRouter is not configured.
+
+
+## MCP tools
+
+RZ Agent exposes a protected MCP JSON-RPC endpoint at `/mcp`, plus REST discovery at `/v1/tools` and `/v1/capabilities`. Account mode requires a scoped bearer token for external clients; create/revoke tokens using the endpoints documented in `AUTHENTICATION.md`. Apply `database/migrations/002_api_tokens.sql` after the authentication migration. The initial tools are `chat`, `list_conversations`, and `reset_conversation`; there is no connected web browser, arbitrary shell, filesystem, or external-app tool.

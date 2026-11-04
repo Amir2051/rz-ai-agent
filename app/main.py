@@ -9,7 +9,7 @@ from urllib.request import Request as URLRequest, urlopen
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -52,6 +52,144 @@ def require_app_user(request: Request, x_api_key: str = Header(default="")):
 @app.get("/v1/auth/mode")
 def auth_mode():
     return {"mode": "account" if DATABASE_AUTH_ENABLED else "api_key"}
+
+
+def require_mcp_user(request: Request, authorization: str = Header(default=""), required_scope: str = "mcp:read"):
+    """Authenticate MCP/HTTP tool access without weakening browser session auth."""
+    if DATABASE_AUTH_ENABLED:
+        if authorization:
+            from app.auth import get_user_from_bearer
+            return get_user_from_bearer(authorization, required_scope)
+        user = _get_database_user(request)
+        return {**user, "scopes": ["mcp:read", "mcp:call"], "auth_type": "session"}
+    # Local development retains the existing API key mechanism.
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Bearer token required")
+        require_api_key(token)
+    else:
+        require_api_key(request.headers.get("x-api-key", ""))
+    return {"id": "local", "email": "local@rz-agent", "scopes": ["mcp:read", "mcp:call"], "auth_type": "api_key"}
+
+
+def _mcp_tool_definitions():
+    return [
+        {"name": "chat", "description": "Send a message to RZ AI and receive an assistant reply. Uses the configured model provider.",
+         "inputSchema": {"type": "object", "properties": {
+             "message": {"type": "string", "description": "Message for RZ AI"},
+             "session_id": {"type": "string", "description": "Optional conversation ID to continue"},
+             "system": {"type": "string", "description": "Optional system instruction"}},
+             "required": ["message"], "additionalProperties": False}},
+        {"name": "list_conversations", "description": "List conversation IDs belonging to the authenticated account.",
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+        {"name": "reset_conversation", "description": "Clear an in-memory conversation owned by the authenticated account.",
+         "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}},
+             "required": ["session_id"], "additionalProperties": False}},
+    ]
+
+
+def _run_mcp_tool(name: str, arguments: dict, current_user: dict):
+    if not isinstance(arguments, dict):
+        raise HTTPException(status_code=400, detail="Tool arguments must be an object")
+    user_id = current_user["id"]
+    prefix = f"{user_id}:"
+    if name == "chat":
+        message = arguments.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise HTTPException(status_code=400, detail="message is required")
+        session = arguments.get("session_id")
+        if session is not None and not isinstance(session, str):
+            raise HTTPException(status_code=400, detail="session_id must be a string")
+        system = arguments.get("system", "You are RZ AI, a helpful personal assistant.")
+        if not isinstance(system, str):
+            raise HTTPException(status_code=400, detail="system must be a string")
+        if session and not session.startswith(prefix):
+            if ":" in session:
+                raise HTTPException(status_code=403, detail="Conversation does not belong to this account")
+            session_id = prefix + session
+        else:
+            session_id = session or prefix + uuid.uuid4().hex[:12]
+        reply = _complete_message(
+            system=system,
+            user_content=message, session_id=session_id,
+            model=_select_model_for_task(message), temperature=None, max_tokens=1200,
+        )
+        return reply.model_dump() if hasattr(reply, "model_dump") else reply.dict()
+    if name == "list_conversations":
+        with _store_lock:
+            ids = sorted(k for k in _conversations if k.startswith(prefix))
+        return {"count": len(ids), "sessions": ids}
+    if name == "reset_conversation":
+        session_id = arguments.get("session_id")
+        if not isinstance(session_id, str) or not session_id.startswith(prefix):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        with _store_lock:
+            existed = session_id in _conversations
+            _conversations.pop(session_id, None)
+        return {"session_id": session_id, "reset": True, "existed": existed}
+    raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+
+
+def _require_call_scope(current_user: dict):
+    if "mcp:call" not in current_user.get("scopes", []):
+        raise HTTPException(status_code=403, detail="Token lacks required scope: mcp:call")
+
+
+def require_mcp_call_user(request: Request, authorization: str = Header(default="")):
+    return require_mcp_user(request, authorization, "mcp:call")
+
+
+@app.get("/v1/capabilities")
+def capabilities(current_user: dict = Depends(require_mcp_user)):
+    return {"service": "rz-ai-agent", "mcp": {"endpoint": "/mcp", "transport": "streamable-http",
+            "protocol_versions": ["2025-03-26", "2024-11-05"]},
+            "tools_endpoint": "/v1/tools", "available_tools": [t["name"] for t in _mcp_tool_definitions()],
+            "auth": {"type": "bearer-token-or-session", "scopes": current_user.get("scopes", [])}}
+
+
+@app.get("/v1/tools")
+def list_tools(current_user: dict = Depends(require_mcp_user)):
+    return {"tools": _mcp_tool_definitions()}
+
+
+@app.post("/v1/tools/{tool_name}")
+def call_tool(tool_name: str, payload: dict, current_user: dict = Depends(require_mcp_call_user)):
+    return {"tool": tool_name, "result": _run_mcp_tool(tool_name, payload, current_user)}
+
+
+@app.post("/mcp")
+def mcp_endpoint(payload: dict, request: Request, authorization: str = Header(default="")):
+    method = payload.get("method")
+    request_id = payload.get("id")
+    params = payload.get("params") or {}
+    # A valid bearer token or signed-in browser session is required for every MCP method.
+    current_user = require_mcp_user(request, authorization, "mcp:call" if method == "tools/call" else "mcp:read")
+    if method == "notifications/initialized":
+        return JSONResponse(status_code=202, content={"status": "accepted"})
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+    if method == "initialize":
+        requested_version = params.get("protocolVersion", "2025-03-26")
+        supported_versions = {"2025-03-26", "2024-11-05"}
+        negotiated_version = requested_version if requested_version in supported_versions else "2025-03-26"
+        return {"jsonrpc": "2.0", "id": request_id, "result": {
+            "protocolVersion": negotiated_version,
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "rz-ai-agent", "version": app.version}}}
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _mcp_tool_definitions()}}
+    if method == "tools/call":
+        _require_call_scope(current_user)
+        tool_name = params.get("name", "")
+        try:
+            result = _run_mcp_tool(tool_name, params.get("arguments") or {}, current_user)
+            return {"jsonrpc": "2.0", "id": request_id, "result": {
+                "content": [{"type": "text", "text": json.dumps(result, default=str)}], "isError": False}}
+        except HTTPException as exc:
+            return {"jsonrpc": "2.0", "id": request_id, "result": {
+                "content": [{"type": "text", "text": exc.detail}], "isError": True}}
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found"}}
 
 
 # ---------------------------------------------------------------- OpenRouter (primary)
