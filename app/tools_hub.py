@@ -73,6 +73,20 @@ def _user_id(user: dict) -> str:
     return str(user.get("id", ""))
 
 
+# These tools act with the operator's server-side GITHUB_TOKEN, so only operator accounts may use them.
+OPERATOR_ONLY = {"github_read", "github_create_issue", "github_comment_pr"}
+
+
+def _operator_tool_available(user_id: str, tool_id: str, email: str | None = None) -> bool:
+    from app import workspace_access
+    return tool_id not in OPERATOR_ONLY or workspace_access.is_operator(user_id, email)
+
+
+def _require_operator_tool(user: dict, tool_id: str):
+    if not _operator_tool_available(_user_id(user), tool_id, user.get("email")):
+        raise HTTPException(status_code=403, detail="This tool is not available for this account.")
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
@@ -205,6 +219,8 @@ def _github_write(path: str, payload: dict) -> dict:
 
 
 def _execute(user_id: str, tool_id: str, action: dict) -> dict:
+    if not _operator_tool_available(user_id, tool_id):
+        raise HTTPException(status_code=403, detail="This tool is not available for this account.")
     if tool_id == "github_create_issue":
         return _github_write(f"/repos/{OWNER}/{action['repo']}/issues", {"title": action["title"], "body": action["body"]})
     if tool_id == "github_comment_pr":
@@ -228,6 +244,8 @@ def registry(current_user: dict = Depends(__import__("app.main", fromlist=["requ
     user_id = _user_id(current_user)
     tools = []
     for tool_id, meta in REGISTRY.items():
+        if not _operator_tool_available(user_id, tool_id, current_user.get("email")):
+            continue
         tools.append({"id": tool_id, **meta, "enabled": _enabled(user_id, tool_id)})
     _audit(user_id, "tool_center", "registry_view", "ok", {"tool_count": len(tools)})
     return {"tools": tools, "approval_ttl_seconds": 600}
@@ -312,6 +330,7 @@ def request_approval(body: ApprovalRequest, current_user: dict = Depends(__impor
         raise HTTPException(status_code=422, detail="Only approval-gated tools can be requested here.")
     if REGISTRY[tool_id]["mode"] == "unavailable":
         raise HTTPException(status_code=503, detail="This tool is not wired up and cannot be approved or executed.")
+    _require_operator_tool(current_user, tool_id)
     _require_enabled(user_id, tool_id)
     action = _validate_action(tool_id, body.action)
     approval_id, now = uuid.uuid4().hex, time.time()
@@ -400,6 +419,7 @@ def decide_approval(approval_id: str, body: DecisionRequest, current_user: dict 
 @router.post("/invoke/{tool_id}")
 def invoke_read_tool(tool_id: str, body: dict, current_user: dict = Depends(__import__("app.main", fromlist=["require_app_user"]).require_app_user)):
     user_id = _user_id(current_user)
+    _require_operator_tool(current_user, tool_id)
     _require_enabled(user_id, tool_id)
     if tool_id == "web_research":
         query = body.get("query")
@@ -425,8 +445,12 @@ def invoke_read_tool(tool_id: str, body: dict, current_user: dict = Depends(__im
         if operation not in allowed:
             raise HTTPException(status_code=422, detail="Unsupported GitHub read operation")
         args = {key: body[key] for key in ("repo", "limit", "state", "path", "ref") if key in body}
+        from app import workspace_access
         try:
-            result = {"operation": operation, "data": _github_tool_call(operation, args)}
+            with workspace_access.acting_as(user_id, current_user.get("email")):
+                result = {"operation": operation, "data": _github_tool_call(operation, args)}
+        except workspace_access.OperatorResourceDenied as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from None
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)[:500]) from None
     elif tool_id == "code_review":

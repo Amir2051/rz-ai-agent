@@ -8,6 +8,8 @@ services:
     envVars:
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: RZ_OPERATOR_EMAILS
+        sync: false
       - key: INWORLD_API_KEY
         sync: false
       - key: INWORLD_VOICE_ID

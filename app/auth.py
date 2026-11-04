@@ -178,6 +178,21 @@ def revoke_api_token(token_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Token not found")
     return {"revoked": True, "token_id": row[0]}
 
+def get_user_email(user_id: str) -> str | None:
+    """Return an active account's email, or None. Used for operator checks only."""
+    import uuid
+    try:
+        user_uuid = str(uuid.UUID(str(user_id)))
+    except (ValueError, TypeError):
+        return None
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT email FROM auth_users WHERE id = %s AND disabled_at IS NULL",
+            (user_uuid,),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def get_user_from_bearer(authorization: str, required_scope: str | None = None) -> dict:
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token.startswith("rzat_") or len(token) > 200:

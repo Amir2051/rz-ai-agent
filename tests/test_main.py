@@ -898,7 +898,9 @@ def test_mia_agent_loop_executes_task_tool_then_summarizes_verified_result(app, 
     result = app._complete_with_mia_agent_tools("system", "Act as an agent and create a task", "owner-7:session-1", "test-model", 0, 200)
     assert result["choices"][0]["message"]["content"].startswith("Created the Launch feature")
     assert len(calls) == 2
-    assert calls[0][1]["tools"] == app.MIA_AGENT_TOOLS
+    # A non-operator account is never offered the operator's GitHub or local terminal tools.
+    offered = {tool["function"]["name"] for tool in calls[0][1]["tools"]}
+    assert offered == {tool["function"]["name"] for tool in app.MIA_AGENT_TOOLS} - app.OPERATOR_ONLY_AGENT_TOOLS
 
 def test_explicit_investigation_forces_tool_execution_before_any_narration(app, monkeypatch):
     calls = []

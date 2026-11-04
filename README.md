@@ -124,6 +124,12 @@ The authenticated `/mcp` endpoint also exposes four GitHub read-only tools, rest
 
 Public repositories can be read without a GitHub token. To read private repositories, configure `GITHUB_TOKEN` as a server-side environment secret with read-only repository/content permissions. Never pass the token in MCP arguments or commit it. The integration does not expose GitHub write operations, arbitrary owners, or shell access. Issue/PR list calls are limited to 20 results per request.
 
+## Per-account isolation
+
+Every signed-in account only sees its own chats, Creator projects and revisions, saved memories, task plans, agent runs, preferences, tool permissions, approvals and connected social accounts. A conversation ID is bound to the account that created it; other accounts get 403/404 and nothing changes. Each Slack user is treated as a separate account. Signing out in the browser saves any pending Creator draft, then clears the open chat, the Creator workspace and personal settings from the page.
+
+The server's `GITHUB_TOKEN` and the local terminal bridge act as the operator (your GitHub account and your own computer), so only operator accounts may use them. Set `RZ_OPERATOR_EMAILS` to a comma-separated list of operator account emails; other accounts are never offered these tools and are refused if they ask. With `RZ_OPERATOR_EMAILS` unset in account mode, nobody can use them. In local API-key mode the single local user is the operator.
+
 Example MCP tool call after authentication:
 
 ```json

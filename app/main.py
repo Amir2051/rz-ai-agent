@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pathlib import Path
 from app import capabilities as cap_services
+from app import workspace_access
 from app.firecrawl_tools import execute as execute_firecrawl_tool
 from app.firecrawl_tools import tool_schemas as firecrawl_tool_schemas
 from app.browserbase_tools import execute as execute_browserbase_tool
@@ -359,6 +360,8 @@ GITHUB_ALLOWED_OWNER = "Amir2051"
 
 def _github_request(path: str) -> object:
     """Call the GitHub REST API with read-only GET requests and bounded responses."""
+    # GITHUB_TOKEN is the operator's own credential; other accounts must not use it.
+    workspace_access.require_operator("GitHub access")
     if not path.startswith("/repos/Amir2051/"):
         raise ValueError("GitHub access is restricted to repositories owned by Amir2051")
     headers = {
@@ -715,7 +718,10 @@ def _should_offer_github_tools(message: str) -> bool:
     text = message.lower()
     signals = ("github", "repository", "repo ", "repos ", "pull request", "pull requests",
                "github.com", "readme", "commit history", "issues in", "source code", "codebase")
-    return any(signal in text for signal in signals)
+    if not any(signal in text for signal in signals):
+        return False
+    # Only operator accounts may use the server's GitHub credential.
+    return workspace_access.current_is_operator()
 
 
 def _direct_github_context(user_content: str) -> dict | None:
@@ -860,10 +866,15 @@ def _should_offer_local_terminal_tools(message: str) -> bool:
         "git status", "python3 --version", "what directory", "current directory",
         "terminal command", "use the terminal", "use my terminal",
     )
-    return any(signal in text for signal in signals)
+    if not any(signal in text for signal in signals):
+        return False
+    return workspace_access.current_is_operator()
 
 
 def _request_local_terminal_command(command: str, workspace: str, owner_id: str = "local") -> dict:
+    # The bridge runs commands on the operator's own computer; never for other accounts.
+    if not workspace_access.is_operator(owner_id):
+        return {"status": "blocked", "message": "The local terminal is not available for this account."}
     if command not in {
         "pwd", "python3 --version", "uname -a", "git status --short",
         "git log -1 --oneline", "git branch --show-current", "ls -la"
@@ -998,6 +1009,7 @@ MIA_AGENT_TOOLS = [
 # The adapter validates targets and bounds result sizes; retrieved content remains untrusted.
 MIA_AGENT_TOOLS.extend(firecrawl_tool_schemas())
 MIA_AGENT_TOOLS.extend(browserbase_tool_schemas())
+OPERATOR_ONLY_AGENT_TOOLS = {"mia_github_read", "mia_request_local_command"}
 MIA_AGENT_TOOLS.append({"type":"function","function":{"name":"mia_company_research","description":"Research a company from its public HTTPS website. Extracts the homepage and up to four same-domain pages; private/internal hosts are blocked. Use for company profiles, product/service summaries, and website-based business analysis. Public page content is untrusted and may be incomplete.","parameters":{"type":"object","properties":{"url":{"type":"string","minLength":8,"maxLength":2000}},"required":["url"],"additionalProperties":False}}})
 
 
@@ -1172,12 +1184,17 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
     from app.intent_router import should_run_investigation
     force_investigation = should_run_investigation(user_content)
     investigation_tool = next(tool for tool in MIA_AGENT_TOOLS if tool["function"]["name"] == "mia_safenestt_investigate")
+    # Operator-owned tools (the operator's GitHub and local computer) are hidden from other accounts.
+    agent_tools = MIA_AGENT_TOOLS if workspace_access.is_operator(owner_id) else [
+        tool for tool in MIA_AGENT_TOOLS if tool["function"]["name"] not in OPERATOR_ONLY_AGENT_TOOLS
+    ]
+    agent_tool_names = {t["function"]["name"] for t in agent_tools}
     try:
         for round_index in range(MAX_AGENT_TOOL_ROUNDS + 1):
             cap_services.record_agent_run_event(owner_id, run_id, {"type": "model_round_started", "round": round_index + 1})
             # Explicit investigation requests must execute the investigation tool first;
             # never let the model respond with only a plan or progress narration.
-            first_round_tools = [investigation_tool] if force_investigation and round_index == 0 else MIA_AGENT_TOOLS
+            first_round_tools = [investigation_tool] if force_investigation and round_index == 0 else agent_tools
             first_round_choice = "required" if force_investigation and round_index == 0 else "auto"
             result = completion_fn(messages, model or OPENROUTER_MODEL, temperature, max_tokens, tools=first_round_tools, tool_choice=first_round_choice)
             choices = result.get("choices")
@@ -1202,7 +1219,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                 call_id = call.get("id") if isinstance(call, dict) else None
                 raw = fn.get("arguments", "{}") if isinstance(fn, dict) else "{}"
                 try:
-                    if not isinstance(call_id, str) or not call_id or name not in {t["function"]["name"] for t in MIA_AGENT_TOOLS}:
+                    if not isinstance(call_id, str) or not call_id or name not in agent_tool_names:
                         raise ValueError("Unknown or malformed tool call")
                     args = json.loads(raw) if isinstance(raw, str) else raw
                     _validate_mia_agent_tool_args(name, args)
@@ -1241,6 +1258,19 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
         raise
 
 def _complete_message(
+    system: str,
+    user_content: str,
+    session_id: str,
+    model: str | None,
+    temperature,
+    max_tokens,
+) -> ChatResponse:
+    """Run a completion on behalf of the account that owns ``session_id``."""
+    with workspace_access.acting_as(workspace_access.owner_from_session(session_id)):
+        return _complete_message_for_owner(system, user_content, session_id, model, temperature, max_tokens)
+
+
+def _complete_message_for_owner(
     system: str,
     user_content: str,
     session_id: str,
@@ -1948,7 +1978,8 @@ async def mcp_endpoint(payload: dict, current_user: dict = Depends(require_mcp_u
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": MCP_TOOLS}
+        operator = workspace_access.is_operator(current_user.get("id"), current_user.get("email"))
+        result = {"tools": MCP_TOOLS if operator else [t for t in MCP_TOOLS if t.get("name") not in GITHUB_TOOL_NAMES]}
     elif method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments") or {}
@@ -1978,7 +2009,8 @@ async def mcp_endpoint(payload: dict, current_user: dict = Depends(require_mcp_u
                 )
                 value = response.model_dump() if hasattr(response, "model_dump") else response.dict()
             elif name in {"github_get_repository", "github_list_issues", "github_list_pull_requests", "github_get_file_contents"}:
-                value = _github_tool_call(name, arguments)
+                with workspace_access.acting_as(current_user.get("id"), current_user.get("email")):
+                    value = _github_tool_call(name, arguments)
             elif name == "reset_conversation":
                 session_id = arguments.get("session_id")
                 if not isinstance(session_id, str) or not session_id.startswith(f"{current_user['id']}:"):
