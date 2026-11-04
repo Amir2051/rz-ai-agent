@@ -12,3 +12,7 @@ venv/
 
 # Local backup files
 *.backup.*
+*.backup-*
+
+# Local key setup script (contains secrets)
+setup-openrouter-key.sh
