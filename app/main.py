@@ -579,6 +579,20 @@ def _base_messages(system: str, user_content: str, session_id: str) -> list[dict
     return messages
 
 
+OPENROUTER_TRANSIENT_STATUSES = {408, 429, 500, 502, 503, 504}
+
+
+def _openrouter_fallback_models(primary: str) -> list[str]:
+    """Models to try after the primary one, in order, without duplicates."""
+    extra = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
+    names = [OPENROUTER_FALLBACK_MODEL] + [m.strip() for m in extra.split(",")]
+    out: list[str] = []
+    for name in names:
+        if name and name != primary and name not in out:
+            out.append(name)
+    return out
+
+
 def _call_openrouter(messages: list[dict], model: str, temperature, max_tokens, tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
     payload: dict = {
         "model": model or OPENROUTER_MODEL,
@@ -592,55 +606,51 @@ def _call_openrouter(messages: list[dict], model: str, temperature, max_tokens, 
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = tool_choice
-    data = json.dumps(payload).encode("utf-8")
-    req = URLRequest(
-        _openrouter_chat_completions_url(OPENROUTER_ENDPOINT),
-        data=data,
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://rz-ai-agent.local",
-            "X-Title": "RZ AI",
-        },
-        method="POST",
-    )
-    try:
+
+    def post(body: dict) -> dict:
+        req = URLRequest(
+            _openrouter_chat_completions_url(OPENROUTER_ENDPOINT),
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://rz-ai-agent.local",
+                "X-Title": "RZ AI",
+            },
+            method="POST",
+        )
         with urlopen(req, timeout=45) as response:
             return json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        body = exc.read(12000).decode("utf-8", errors="replace")
-        # Account-level ZDR restrictions override per-request settings. For ordinary
-        # chat, try OpenRouter's free-model router once so a blocked endpoint does not
-        # make MIA completely unavailable. Keep tool-calling requests pinned because
-        # the router may select a model without the required tool support.
-        restricted = exc.code == 404 and any(
-            marker in body.lower()
-            for marker in ("zdr violation", "endpoints out of", "no endpoints")
-        )
-        fallback = OPENROUTER_FALLBACK_MODEL
-        if restricted and not tools and fallback and payload["model"] != fallback:
-            print("RZ_OPENROUTER_RETRY", {"reason": "endpoint_policy_or_availability", "fallback_model": fallback}, flush=True)
-            payload["model"] = fallback
-            fallback_req = URLRequest(
-                _openrouter_chat_completions_url(OPENROUTER_ENDPOINT),
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://rz-ai-agent.local",
-                    "X-Title": "RZ AI",
-                },
-                method="POST",
+
+    candidates = [payload["model"]] + _openrouter_fallback_models(payload["model"])
+    restricted_seen = False
+    for index, candidate in enumerate(candidates):
+        payload["model"] = candidate
+        try:
+            return post(payload)
+        except HTTPError as exc:
+            body = exc.read(12000).decode("utf-8", errors="replace")
+            print("RZ_PROVIDER_ERROR", {"provider": "openrouter", "status": exc.code, "model": candidate, "message": body[:700]}, flush=True)
+            # Free models share upstream capacity and are often rate-limited for a
+            # moment (429) or briefly unavailable (5xx). Move on to the next model
+            # instead of failing the whole chat. Account-level ZDR blocks (404) also
+            # move on, but only for plain chat: the free router may pick a model
+            # without tool support, so tool-calling requests stay pinned for those.
+            restricted = exc.code == 404 and any(
+                marker in body.lower()
+                for marker in ("zdr violation", "endpoints out of", "no endpoints")
             )
-            try:
-                with urlopen(fallback_req, timeout=45) as response:
-                    return json.loads(response.read().decode("utf-8"))
-            except HTTPError as fallback_exc:
-                fallback_body = fallback_exc.read(12000).decode("utf-8", errors="replace")
-                print("RZ_PROVIDER_ERROR", {"provider": "openrouter", "status": fallback_exc.code, "model": fallback, "message": fallback_body[:700]}, flush=True)
-                raise HTTPException(status_code=502, detail="OpenRouter blocked the configured model and its free-model fallback. Check OpenRouter Privacy/Guardrails ZDR restrictions or choose an eligible model.") from None
-        print("RZ_PROVIDER_ERROR", {"provider": "openrouter", "status": exc.code, "model": payload["model"], "message": body[:700]}, flush=True)
-        raise HTTPException(status_code=502, detail="OpenRouter rejected the model request. Check model availability and account Privacy/Guardrails restrictions.") from None
+            restricted_seen = restricted_seen or restricted
+            transient = exc.code in OPENROUTER_TRANSIENT_STATUSES
+            has_next = index + 1 < len(candidates)
+            if has_next and (transient or (restricted and not tools)):
+                reason = "rate_limited_or_unavailable" if transient else "endpoint_policy_or_availability"
+                print("RZ_OPENROUTER_RETRY", {"reason": reason, "fallback_model": candidates[index + 1]}, flush=True)
+                continue
+            break
+    if restricted_seen:
+        raise HTTPException(status_code=502, detail="OpenRouter blocked the configured model and its free-model fallback. Check OpenRouter Privacy/Guardrails ZDR restrictions or choose an eligible model.")
+    raise HTTPException(status_code=502, detail="OpenRouter rejected the model request. Check model availability and account Privacy/Guardrails restrictions.")
 
 
 def _call_hermes(messages: list[dict], model: str, temperature, max_tokens, tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
