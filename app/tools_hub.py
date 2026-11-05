@@ -29,10 +29,11 @@ REGISTRY = {
     "github_read": {"label": "GitHub read", "category": "connected services", "risk": "low", "mode": "read", "description": "Read repository metadata, issues, pull requests, and text files for Amir2051-owned repositories.", "approval_required": False},
     "github_create_issue": {"label": "Create GitHub issue", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Create an issue in an allowlisted Amir2051 repository.", "approval_required": True},
     "github_comment_pr": {"label": "Comment on pull request", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Post a comment to a pull request in an allowlisted Amir2051 repository.", "approval_required": True},
+    "mcp_call": {"label": "Outside MCP tools", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Run a tool from an MCP server configured in RZ_MCP_SERVERS. Read-only tools run directly; every other tool needs approval each time.", "approval_required": True},
     "image_generation": {"label": "Image generation (not wired)", "category": "creative", "risk": "cost", "mode": "unavailable", "description": "Reserved for a future approved adapter; not executable in this release.", "approval_required": True},
 }
 DEFAULT_PERMISSIONS = {name: (name not in {"github_create_issue", "github_comment_pr", "image_generation"}) for name in REGISTRY}
-HIGH_RISK = {"github_create_issue", "github_comment_pr", "image_generation", "saved_memory", "task_plans"}
+HIGH_RISK = {"github_create_issue", "github_comment_pr", "image_generation", "saved_memory", "task_plans", "mcp_call"}
 OWNER = "Amir2051"
 
 
@@ -74,7 +75,7 @@ def _user_id(user: dict) -> str:
 
 
 # These tools act with the operator's server-side GITHUB_TOKEN, so only operator accounts may use them.
-OPERATOR_ONLY = {"github_read", "github_create_issue", "github_comment_pr"}
+OPERATOR_ONLY = {"github_read", "github_create_issue", "github_comment_pr", "mcp_call"}
 
 
 def _operator_tool_available(user_id: str, tool_id: str, email: str | None = None) -> bool:
@@ -183,6 +184,16 @@ def _validate_action(tool_id: str, action: dict) -> dict:
         if not isinstance(steps, list) or not 1 <= len(steps) <= 20 or any(not isinstance(s, str) or not s.strip() or len(s) > 500 for s in steps):
             raise HTTPException(status_code=422, detail="steps must contain 1–20 short text items")
         return {"title": title.strip(), "steps": [s.strip() for s in steps]}
+    if tool_id == "mcp_call":
+        from app import mcp_client
+        server, tool, arguments = action.get("server"), action.get("tool"), action.get("arguments", {})
+        if not isinstance(server, str) or server not in {s["name"] for s in mcp_client.configured_servers()}:
+            raise HTTPException(status_code=422, detail="server must be a configured MCP server")
+        if not isinstance(tool, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", tool):
+            raise HTTPException(status_code=422, detail="tool must be an MCP tool name")
+        if not isinstance(arguments, dict) or len(_json(arguments)) > mcp_client.MAX_ARGUMENT_BYTES:
+            raise HTTPException(status_code=422, detail="arguments must be a JSON object under 20 KB")
+        return {"server": server, "tool": tool, "arguments": arguments}
     raise HTTPException(status_code=422, detail="This tool does not accept approval-gated actions.")
 
 
@@ -236,6 +247,12 @@ def _execute(user_id: str, tool_id: str, action: dict) -> dict:
         return {"deleted": deleted, "memory_id": action["content"]}
     if tool_id == "task_plans":
         return cap_services.create_task(user_id, action["title"], action["steps"])
+    if tool_id == "mcp_call":
+        from app import mcp_client
+        try:
+            return mcp_client.call_tool(action["server"], action["tool"], action["arguments"])
+        except mcp_client.MCPError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)[:500]) from None
     raise HTTPException(status_code=422, detail="Unknown or unsupported tool action")
 
 
@@ -332,20 +349,7 @@ def request_approval(body: ApprovalRequest, current_user: dict = Depends(__impor
         raise HTTPException(status_code=503, detail="This tool is not wired up and cannot be approved or executed.")
     _require_operator_tool(current_user, tool_id)
     _require_enabled(user_id, tool_id)
-    action = _validate_action(tool_id, body.action)
-    approval_id, now = uuid.uuid4().hex, time.time()
-    summary = body.summary.strip()
-    conn, kind = _conn()
-    try:
-        if kind == "postgres":
-            conn.execute("INSERT INTO mia_tool_approvals VALUES(%s,%s,%s,%s::jsonb,%s,'pending',%s,%s,NULL,NULL)", (approval_id, user_id, tool_id, _json(action), summary, now, now + 600))
-        else:
-            conn.execute("INSERT INTO mia_tool_approvals VALUES(?,?,?,?,?,'pending',?,?,NULL,NULL)", (approval_id, user_id, tool_id, _json(action), summary, now, now + 600))
-        conn.commit()
-    finally:
-        conn.close()
-    _audit(user_id, tool_id, "approval_requested", "pending", {"approval_id": approval_id, "summary": summary})
-    return {"approval_id": approval_id, "status": "pending", "expires_at": now + 600, "summary": summary}
+    return queue_approval(user_id, tool_id, body.action, body.summary)
 
 
 @router.post("/approvals/{approval_id}/decision")
@@ -414,6 +418,32 @@ def decide_approval(approval_id: str, body: DecisionRequest, current_user: dict 
     if not outcome["ok"]:
         raise HTTPException(status_code=502, detail=outcome["error"])
     return {"status": final_status, "approval_id": approval_id, **outcome}
+
+
+def queue_approval(user_id: str, tool_id: str, action: dict, summary: str) -> dict:
+    """Validate an action and store it as a pending, 10-minute approval for its owner."""
+    action = _validate_action(tool_id, action)
+    approval_id, now = uuid.uuid4().hex, time.time()
+    summary = summary.strip()[:500]
+    conn, kind = _conn()
+    try:
+        if kind == "postgres":
+            conn.execute("INSERT INTO mia_tool_approvals VALUES(%s,%s,%s,%s::jsonb,%s,'pending',%s,%s,NULL,NULL)", (approval_id, user_id, tool_id, _json(action), summary, now, now + 600))
+        else:
+            conn.execute("INSERT INTO mia_tool_approvals VALUES(?,?,?,?,?,'pending',?,?,NULL,NULL)", (approval_id, user_id, tool_id, _json(action), summary, now, now + 600))
+        conn.commit()
+    finally:
+        conn.close()
+    _audit(user_id, tool_id, "approval_requested", "pending", {"approval_id": approval_id, "summary": summary})
+    return {"approval_id": approval_id, "status": "pending", "expires_at": now + 600, "summary": summary}
+
+
+@router.get("/mcp-servers")
+def mcp_servers(current_user: dict = Depends(__import__("app.main", fromlist=["require_app_user"]).require_app_user)):
+    """Operator view of configured outside MCP servers and the tools each one offers."""
+    _require_operator_tool(current_user, "mcp_call")
+    from app import mcp_client
+    return {"servers": mcp_client.status()}
 
 
 @router.post("/invoke/{tool_id}")

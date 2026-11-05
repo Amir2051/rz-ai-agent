@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 _EXPLICIT_AGENT_CUES = (
+    "mcp", "supabase", "connected tools", "outside tools",
     "act as an agent", "agent mode", "use your tools", "use tools to",
     "use your tools to", "plan and execute", "research and create",
     "remember this", "save this to memory", "create a task", "make me a task plan",

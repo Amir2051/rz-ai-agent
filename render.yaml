@@ -10,6 +10,8 @@ services:
         sync: false
       - key: RZ_OPERATOR_EMAILS
         sync: false
+      - key: RZ_MCP_SERVERS
+        sync: false
       - key: INWORLD_API_KEY
         sync: false
       - key: INWORLD_VOICE_ID
