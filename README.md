@@ -130,6 +130,20 @@ Every signed-in account only sees its own chats, Creator projects and revisions,
 
 The server's `GITHUB_TOKEN` and the local terminal bridge act as the operator (your GitHub account and your own computer), so only operator accounts may use them. Set `RZ_OPERATOR_EMAILS` to a comma-separated list of operator account emails; other accounts are never offered these tools and are refused if they ask. With `RZ_OPERATOR_EMAILS` unset in account mode, nobody can use them. In local API-key mode the single local user is the operator.
 
+### Outside MCP servers
+
+MIA can also use tools from other MCP servers (Streamable HTTP, HTTPS only), for operator accounts only. List them in `RZ_MCP_SERVERS` as JSON:
+
+```json
+[{"name": "safenestt", "url": "https://mcp.example.com/mcp", "token_env": "SAFENESTT_MCP_TOKEN"},
+ {"name": "supabase", "url": "https://mcp.supabase.com/mcp", "token_env": "SUPABASE_MCP_TOKEN", "allow_write": true}]
+```
+
+- `token_env` names the environment variable that holds the token; it's sent as `Authorization: Bearer …` (change with `auth_header` / `auth_scheme`). Tokens are never stored, logged or returned.
+- Tools the server marks read-only (`readOnlyHint`) run directly. Other tools stay hidden unless `allow_write` is `true`, and then each call waits as a pending approval in the Tool Center.
+- `GET /v1/tool-center/mcp-servers` shows each server's status and tools. An unreachable server is skipped for two minutes so it can't slow chat down.
+- "Outside MCP tools" can be switched off in the Tool Center.
+
 Example MCP tool call after authentication:
 
 ```json

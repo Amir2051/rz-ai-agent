@@ -23,6 +23,7 @@ from app.firecrawl_tools import execute as execute_firecrawl_tool
 from app.firecrawl_tools import tool_schemas as firecrawl_tool_schemas
 from app.browserbase_tools import execute as execute_browserbase_tool
 from app.browserbase_tools import tool_schemas as browserbase_tool_schemas
+from app import mcp_client
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -1198,6 +1199,11 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
     agent_tools = MIA_AGENT_TOOLS if workspace_access.is_operator(owner_id) else [
         tool for tool in MIA_AGENT_TOOLS if tool["function"]["name"] not in OPERATOR_ONLY_AGENT_TOOLS
     ]
+    if workspace_access.is_operator(owner_id) and mcp_client.configured_servers():
+        try:
+            agent_tools = agent_tools + mcp_client.agent_tool_schemas()
+        except Exception as exc:  # An unreachable outside server must never break chat.
+            print("RZ_MCP_ERROR", {"error_type": type(exc).__name__}, flush=True)
     agent_tool_names = {t["function"]["name"] for t in agent_tools}
     try:
         for round_index in range(MAX_AGENT_TOOL_ROUNDS + 1):
@@ -1232,10 +1238,16 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     if not isinstance(call_id, str) or not call_id or name not in agent_tool_names:
                         raise ValueError("Unknown or malformed tool call")
                     args = json.loads(raw) if isinstance(raw, str) else raw
-                    _validate_mia_agent_tool_args(name, args)
+                    is_mcp = name.startswith(mcp_client.TOOL_PREFIX)
+                    if is_mcp:
+                        # The remote server validates against its own schema; we bound type and size.
+                        if not isinstance(args, dict):
+                            raise ValueError("Tool arguments must be a JSON object")
+                    else:
+                        _validate_mia_agent_tool_args(name, args)
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_started", "tool": name, "argument_keys": sorted(args.keys())})
                     tool_execution_started = True
-                    tool_result = _dispatch_mia_agent_tool(name, args, owner_id, session_id)
+                    tool_result = mcp_client.agent_call(name, args, owner_id) if is_mcp else _dispatch_mia_agent_tool(name, args, owner_id, session_id)
                     event_result = tool_result
                     if name == "mia_safenestt_investigate" and isinstance(tool_result, dict):
                         # Investigation indicators and source evidence stay in the user-visible result,
