@@ -7,6 +7,7 @@ def test_public_skill_catalog_has_expected_profiles():
         'strategic_operator', 'software_engineering', 'machine_learning_engineering', 'investment_intelligence',
         'research_and_evidence', 'rz_principles', 'learning_coach',
         'ethical_tool_use', 'creator_and_communication',
+        'fraud_investigation', 'marketing_growth', 'data_analysis', 'security_hardening',
     }
 
 

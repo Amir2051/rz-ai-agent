@@ -64,13 +64,19 @@ def test_document_analysis_extracts_only_supported_uploads(client, monkeypatch):
     })
 
 
-def test_unwired_image_generation_cannot_be_approved(client):
+def test_image_generation_requires_approval_and_validates_prompt(client):
     c, headers = client
-    response = c.post("/v1/tool-center/approvals", headers=headers, json={
-        "tool_id": "image_generation", "action": {"prompt": "draw something"},
+    request = {"tool_id": "image_generation", "action": {"prompt": "draw something"}, "summary": "Generate an image"}
+    assert c.post("/v1/tool-center/approvals", headers=headers, json=request).status_code == 403  # opt-in by default
+    assert c.put("/v1/tool-center/permissions/image_generation", headers=headers, json={"enabled": True}).status_code == 200
+    response = c.post("/v1/tool-center/approvals", headers=headers, json=request)
+    assert response.status_code == 200
+    assert response.json()["approval_id"]
+    bad = c.post("/v1/tool-center/approvals", headers=headers, json={
+        "tool_id": "image_generation", "action": {"prompt": "   "},
         "summary": "Generate an image"
     })
-    assert response.status_code == 503
+    assert bad.status_code == 422
 
 
 def test_approval_is_owner_scoped_and_duplicate_decision_blocked(client):
