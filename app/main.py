@@ -24,6 +24,7 @@ from app.firecrawl_tools import tool_schemas as firecrawl_tool_schemas
 from app.browserbase_tools import execute as execute_browserbase_tool
 from app.browserbase_tools import tool_schemas as browserbase_tool_schemas
 from app import mcp_client
+from app import plugin_manager
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -1248,14 +1249,19 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
     agent_tools = MIA_AGENT_TOOLS if workspace_access.is_operator(owner_id) else [
         tool for tool in MIA_AGENT_TOOLS if tool["function"]["name"] not in OPERATOR_ONLY_AGENT_TOOLS
     ]
+    try:
+        agent_tools = agent_tools + plugin_manager.plugin_tools(owner_id)
+    except Exception as exc:  # An unreachable plugin must never break ordinary chat.
+        print("RZ_MCP_PLUGIN_SCHEMA_ERROR", {"error_type": type(exc).__name__}, flush=True)
     if workspace_access.is_operator(owner_id) and mcp_client.configured_servers():
         try:
             agent_tools = agent_tools + mcp_client.agent_tool_schemas()
-        except Exception as exc:  # An unreachable outside server must never break chat.
+        except Exception as exc:
             print("RZ_MCP_ERROR", {"error_type": type(exc).__name__}, flush=True)
     agent_tool_names = {t["function"]["name"] for t in agent_tools}
     try:
-        for round_index in range(MAX_AGENT_TOOL_ROUNDS + 1):
+        round_index = 0
+        while True:
             cap_services.record_agent_run_event(owner_id, run_id, {"type": "model_round_started", "round": round_index + 1})
             # Explicit investigation requests must execute the investigation tool first;
             # never let the model respond with only a plan or progress narration.
@@ -1287,16 +1293,21 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     if not isinstance(call_id, str) or not call_id or name not in agent_tool_names:
                         raise ValueError("Unknown or malformed tool call")
                     args = json.loads(raw) if isinstance(raw, str) else raw
+                    is_plugin = name.startswith("mcp_") and not name.startswith(mcp_client.TOOL_PREFIX)
                     is_mcp = name.startswith(mcp_client.TOOL_PREFIX)
-                    if is_mcp:
+                    if is_mcp or is_plugin:
                         # The remote server validates against its own schema; we bound type and size.
                         if not isinstance(args, dict):
                             raise ValueError("Tool arguments must be a JSON object")
                     else:
                         _validate_mia_agent_tool_args(name, args)
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_started", "tool": name, "call_id": call_id, "argument_keys": sorted(args.keys())})
+                    if is_plugin:
+                        cap_services.record_agent_run_event(owner_id, run_id, {"type":"plugin_tool_started","tool":name,"call_id":call_id,"arguments":args})
                     tool_execution_started = True
-                    tool_result = mcp_client.agent_call(name, args, owner_id) if is_mcp else _dispatch_mia_agent_tool(name, args, owner_id, session_id)
+                    tool_result = plugin_manager.call_plugin_tool(owner_id,name,args) if is_plugin else (mcp_client.agent_call(name, args, owner_id) if is_mcp else _dispatch_mia_agent_tool(name, args, owner_id, session_id))
+                    if is_plugin:
+                        cap_services.record_agent_run_event(owner_id, run_id, {"type":"plugin_tool_completed","tool":name,"call_id":call_id,"result":tool_result})
                     event_result = tool_result
                     if name == "mia_safenestt_investigate":
                         # An investigation is not successful until its durable record
@@ -1360,7 +1371,7 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_failed", "tool": str(name)[:100], "call_id": call_id, "error": f"Investigation operation failed ({type(exc).__name__}); details suppressed."})
                     raise AgentToolExecutionError("MIA investigation failed or could not be verified; no successful investigation is being reported.") from exc
                 messages.append({"role":"tool","tool_call_id":call_id,"content":json.dumps(tool_result, ensure_ascii=False)[:24000]})
-        raise HTTPException(status_code=502, detail="MIA did not complete the agent tool cycle")
+            round_index += 1
     except Exception as exc:
         try:
             cap_services.finish_agent_run(owner_id, run_id, "failed", error=str(getattr(exc, "detail", exc))[:1000])
@@ -1452,6 +1463,13 @@ def _complete_message_for_owner(
                 result = _complete_with_research_context(
                     system, user_content, session_id, provider_model, temperature, max_tokens
                 )
+            elif name == "ollama" and _should_use_mia_agent_tools(user_content):
+                # Ollama's current adapter does not execute this agent's function-call
+                # protocol. Never let a plain-text fallback claim that MCP tools ran.
+                raise HTTPException(
+                    status_code=503,
+                    detail="MIA tool execution is unavailable on the configured Ollama fallback; no plugin or agent tools were executed. Restore OpenRouter or the supported Hermes tool provider and retry.",
+                )
             else:
                 messages = _base_messages(system, user_content, session_id)
                 result = fn(messages, provider_model, temperature, max_tokens)
@@ -1482,7 +1500,7 @@ def _complete_message_for_owner(
             print("RZ_PROVIDER_ERROR", {"provider": name, "reason": "tool_execution_started_no_replay"}, flush=True)
             raise HTTPException(status_code=502, detail=str(exc)) from None
         except HTTPException as exc:
-            if exc.status_code < 500:
+            if exc.status_code < 500 or (name == "ollama" and _should_use_mia_agent_tools(user_content)):
                 raise
             print("RZ_PROVIDER_ERROR", {"provider": name, "status": exc.status_code, "model": provider_model}, flush=True)
             last_error = RuntimeError(f"{name} HTTP {exc.status_code}: {str(exc.detail)[:200]}")
@@ -1794,7 +1812,7 @@ def agent_progress(session_id: str, current_user: dict = Depends(require_app_use
     except Exception:
         # Progress is optional; never fail the chat because the ledger is unavailable.
         return JSONResponse({"active": False, "events": []}, headers={"Cache-Control": "no-store"})
-    match = next((item for item in runs if item.get("session_id") == session_id and item.get("status") == "running"), None)
+    match = next((item for item in runs if item.get("session_id") == session_id), None)
     if not match:
         return JSONResponse({"active": False, "events": []}, headers={"Cache-Control": "no-store"})
     safe_events = []
@@ -1804,11 +1822,68 @@ def agent_progress(session_id: str, current_user: dict = Depends(require_app_use
         kind = event.get("type")
         if kind == "tool_started":
             safe_events.append({"type": kind, "tool": str(event.get("tool", "tool"))[:80], "at": event.get("at")})
+        elif kind == "plugin_tool_started":
+            safe_events.append({"type":kind,"tool":str(event.get("tool","plugin"))[:80],"arguments":event.get("arguments",{}),"at":event.get("at")})
+        elif kind == "plugin_tool_completed":
+            safe_events.append({"type":kind,"tool":str(event.get("tool","plugin"))[:80],"result":event.get("result",{}),"at":event.get("at")})
         elif kind in {"tool_completed", "tool_failed"}:
             safe_events.append({"type": kind, "tool": str(event.get("tool", "tool"))[:80], "at": event.get("at")})
         elif kind in {"run_started", "model_round_started"}:
             safe_events.append({"type": kind, "round": event.get("round"), "at": event.get("at")})
-    return JSONResponse({"active": True, "run_id": match.get("id"), "status": "running", "events": safe_events}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"active": match.get("status")=="running", "run_id": match.get("id"), "status": match.get("status"), "events": safe_events}, headers={"Cache-Control": "no-store"})
+
+
+class MCPPluginCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    transport: str
+    command: str | None = None
+    args: list[str] = Field(default_factory=list, max_length=40)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class MCPPluginToggle(BaseModel):
+    enabled: bool
+
+
+@app.get("/v1/plugins")
+def get_plugins(current_user: dict = Depends(require_app_user)):
+    user_id=str(current_user.get("id", ""))
+    plugins=[]
+    for item in plugin_manager.list_plugins(user_id):
+        try: plugins.append(plugin_manager.inspect_plugin(user_id,item["id"]))
+        except Exception as exc: plugins.append({**item,"status":"error","error":str(exc)[:250],"tools":[]})
+    return {"plugins":plugins,"active_count":sum(1 for x in plugins if x.get("enabled"))}
+
+
+@app.post("/v1/plugins", status_code=201)
+def add_plugin(body: MCPPluginCreate, current_user: dict = Depends(require_app_user)):
+    if body.transport == "stdio" and not workspace_access.is_operator(str(current_user.get("id", ""))):
+        raise HTTPException(status_code=403,detail="Local stdio plugins are restricted to the RZ operator account.")
+    data=body.model_dump(exclude_none=True)
+    try:
+        if len(plugin_manager.list_plugins(str(current_user["id"]))) >= plugin_manager.MAX_PLUGINS:
+            raise plugin_manager.PluginError("Plugin limit reached (30 per account)")
+        plugin=plugin_manager.create_plugin(str(current_user["id"]),data)
+        return plugin_manager.inspect_plugin(str(current_user["id"]),plugin["id"])
+    except plugin_manager.PluginError as exc: raise HTTPException(status_code=422,detail=str(exc)) from None
+
+
+@app.patch("/v1/plugins/{plugin_id}")
+def toggle_plugin(plugin_id: str, body: MCPPluginToggle, current_user: dict = Depends(require_app_user)):
+    try: plugin_manager.set_enabled(str(current_user["id"]),plugin_id,body.enabled)
+    except KeyError: raise HTTPException(status_code=404,detail="Plugin not found") from None
+    except plugin_manager.PluginError as exc: raise HTTPException(status_code=422,detail=str(exc)) from None
+    return plugin_manager.inspect_plugin(str(current_user["id"]),plugin_id)
+
+
+@app.delete("/v1/plugins/{plugin_id}")
+def remove_plugin(plugin_id: str, current_user: dict = Depends(require_app_user)):
+    try: plugin_manager.delete_plugin(str(current_user["id"]),plugin_id)
+    except KeyError: raise HTTPException(status_code=404,detail="Plugin not found") from None
+    except plugin_manager.PluginError as exc: raise HTTPException(status_code=422,detail=str(exc)) from None
+    return {"deleted":True,"id":plugin_id}
 
 
 @app.post("/v1/chat")

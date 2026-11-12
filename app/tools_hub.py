@@ -30,10 +30,11 @@ REGISTRY = {
     "github_create_issue": {"label": "Create GitHub issue", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Create an issue in an allowlisted Amir2051 repository.", "approval_required": True},
     "github_comment_pr": {"label": "Comment on pull request", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Post a comment to a pull request in an allowlisted Amir2051 repository.", "approval_required": True},
     "mcp_call": {"label": "Outside MCP tools", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Run a tool from an MCP server configured in RZ_MCP_SERVERS. Read-only tools run directly; every other tool needs approval each time.", "approval_required": True},
+    "mcp_plugins": {"label": "MCP plugin actions", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Run write-capable tools from your saved MCP plugins only after explicit approval.", "approval_required": True},
     "image_generation": {"label": "Image generation (not wired)", "category": "creative", "risk": "cost", "mode": "unavailable", "description": "Reserved for a future approved adapter; not executable in this release.", "approval_required": True},
 }
 DEFAULT_PERMISSIONS = {name: (name not in {"github_create_issue", "github_comment_pr", "image_generation"}) for name in REGISTRY}
-HIGH_RISK = {"github_create_issue", "github_comment_pr", "image_generation", "saved_memory", "task_plans", "mcp_call"}
+HIGH_RISK = {"github_create_issue", "github_comment_pr", "image_generation", "saved_memory", "task_plans", "mcp_call", "mcp_plugins"}
 OWNER = "Amir2051"
 
 
@@ -139,7 +140,7 @@ class DecisionRequest(BaseModel):
     decision: str = Field(pattern="^(approve|deny)$")
 
 
-def _validate_action(tool_id: str, action: dict) -> dict:
+def _validate_action(tool_id: str, action: dict, user_id: str | None = None) -> dict:
     """Normalize actions at the server boundary; never accept arbitrary URLs or API paths."""
     if tool_id == "github_create_issue":
         repo = action.get("repo")
@@ -184,6 +185,20 @@ def _validate_action(tool_id: str, action: dict) -> dict:
         if not isinstance(steps, list) or not 1 <= len(steps) <= 20 or any(not isinstance(s, str) or not s.strip() or len(s) > 500 for s in steps):
             raise HTTPException(status_code=422, detail="steps must contain 1–20 short text items")
         return {"title": title.strip(), "steps": [s.strip() for s in steps]}
+    if tool_id == "mcp_plugins":
+        from app import plugin_manager
+        plugin_id, tool_name, arguments = action.get("plugin_id"), action.get("tool_name"), action.get("arguments", {})
+        if not isinstance(plugin_id,str) or not re.fullmatch(r"[a-f0-9]{32}",plugin_id):
+            raise HTTPException(status_code=422,detail="plugin_id must be a valid plugin ID")
+        if not isinstance(tool_name,str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,47}",tool_name):
+            raise HTTPException(status_code=422,detail="tool_name is invalid")
+        if not isinstance(arguments,dict) or len(_json(arguments))>20000:
+            raise HTTPException(status_code=422,detail="arguments must be a JSON object under 20 KB")
+        try:
+            plugin=plugin_manager._read(user_id,plugin_id)
+            if not plugin["enabled"]: raise HTTPException(status_code=422,detail="Plugin is disabled")
+        except KeyError: raise HTTPException(status_code=404,detail="Plugin not found") from None
+        return {"plugin_id":plugin_id,"tool_name":tool_name,"arguments":arguments}
     if tool_id == "mcp_call":
         from app import mcp_client
         server, tool, arguments = action.get("server"), action.get("tool"), action.get("arguments", {})
@@ -253,6 +268,10 @@ def _execute(user_id: str, tool_id: str, action: dict) -> dict:
             return mcp_client.call_tool(action["server"], action["tool"], action["arguments"])
         except mcp_client.MCPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)[:500]) from None
+    if tool_id == "mcp_plugins":
+        from app import plugin_manager
+        try: return plugin_manager.call_plugin_by_id(user_id,action["plugin_id"],action["tool_name"],action["arguments"])
+        except plugin_manager.PluginError as exc: raise HTTPException(status_code=502,detail=str(exc)[:500]) from None
     raise HTTPException(status_code=422, detail="Unknown or unsupported tool action")
 
 
@@ -422,7 +441,7 @@ def decide_approval(approval_id: str, body: DecisionRequest, current_user: dict 
 
 def queue_approval(user_id: str, tool_id: str, action: dict, summary: str) -> dict:
     """Validate an action and store it as a pending, 10-minute approval for its owner."""
-    action = _validate_action(tool_id, action)
+    action = _validate_action(tool_id, action, user_id)
     approval_id, now = uuid.uuid4().hex, time.time()
     summary = summary.strip()[:500]
     conn, kind = _conn()
