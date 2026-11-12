@@ -1791,6 +1791,78 @@ html[data-mia-theme="light"] #miaEyeBackdrop .mia-eye-caption{color:#287ba3;text
 @media(max-width:900px){#miaEyeBackdrop{opacity:.42}#miaEyeBackdrop .mia-eye-svg{width:100vw;height:100vh;height:100dvh}#miaEyeBackdrop .mia-eye-caption{bottom:10px;font-size:8px}}
 @media(max-width:680px){#miaEyeBackdrop{opacity:.34}#miaEyeBackdrop .mia-eye-caption{font-size:7px;letter-spacing:.14em}.mia-sidebar .nav-kicker{margin:7px 5px 3px!important}.mia-sidebar .side-nav-item{min-height:37px!important}}
 @media(prefers-reduced-motion:reduce){#miaEyeBackdrop *,#miaEyeBackdrop *:before{animation:none!important;transition:none!important}}
+
+/* Conversation text floats over MIA's living eye; remove opaque speaker cards. */
+#chatPanel #messages .bubble,
+#chatPanel #messages .bubble.user,
+#chatPanel #messages .bubble.assistant,
+html[data-mia-theme="dark"] #chatPanel #messages .bubble,
+html[data-mia-theme="light"] #chatPanel #messages .bubble{
+  position:relative!important;
+  background:transparent!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  color:#f4f8ff!important;
+  text-shadow:0 2px 4px rgba(0,0,0,.98),0 0 1px rgba(0,0,0,.95)!important;
+  padding:13px 18px!important;
+  overflow:visible!important;
+}
+#chatPanel #messages .bubble.user{
+  align-self:flex-end!important;
+  border-right:2px solid rgba(96,226,255,.8)!important;
+  padding-right:16px!important;
+  max-width:min(88%,860px)!important;
+}
+#chatPanel #messages .bubble.assistant{
+  align-self:flex-start!important;
+  border-left:2px solid rgba(115,211,255,.72)!important;
+  padding-left:16px!important;
+  max-width:min(94%,960px)!important;
+}
+#chatPanel #messages .bubble.user::before,
+#chatPanel #messages .bubble.assistant::before{
+  content:""!important;
+  position:absolute!important;
+  inset:3px 0!important;
+  z-index:-1!important;
+  pointer-events:none!important;
+  background:linear-gradient(90deg,rgba(2,10,22,.14),rgba(2,10,22,.035) 72%,transparent)!important;
+  opacity:.72!important;
+}
+#chatPanel #messages .bubble.user::before{
+  background:linear-gradient(270deg,rgba(3,15,34,.16),rgba(3,15,34,.035) 72%,transparent)!important;
+}
+#chatPanel #messages .bubble p,
+#chatPanel #messages .bubble li,
+#chatPanel #messages .bubble h1,
+#chatPanel #messages .bubble h2,
+#chatPanel #messages .bubble h3,
+#chatPanel #messages .bubble blockquote,
+#chatPanel #messages .bubble .rz-output-body{
+  text-shadow:inherit!important;
+}
+#chatPanel #messages .bubble strong{color:#d9f6ff!important;text-shadow:0 2px 4px rgba(0,0,0,.98)!important}
+#chatPanel #messages .bubble a{color:#8feaff!important;text-shadow:0 2px 4px rgba(0,0,0,.98)!important}
+#chatPanel #messages .bubble code:not(pre code){background:rgba(4,12,26,.34)!important;border-color:rgba(102,192,232,.24)!important}
+#chatPanel #messages .bubble pre,
+#chatPanel #messages .bubble .rz-codeblock,
+#chatPanel #messages .bubble .rz-code-block,
+#chatPanel #messages .bubble table{
+  background:rgba(3,9,20,.82)!important;
+  box-shadow:0 6px 22px rgba(0,0,0,.22)!important;
+}
+#chatPanel #messages .bubble .rz-codebar,
+#chatPanel #messages .bubble .rz-code-head{background:rgba(14,31,52,.88)!important}
+#chatPanel #messages .bubble.error{background:rgba(62,15,30,.38)!important;border:1px solid rgba(255,120,150,.42)!important}
+@media(max-width:680px){
+ #chatPanel #messages .bubble.user{max-width:94%!important}
+ #chatPanel #messages .bubble.assistant{max-width:98%!important}
+ #chatPanel #messages .bubble{padding:10px 11px!important}
+}
+
 </style>
 <script id="mia-living-eye-state">
 (()=>{
