@@ -233,3 +233,20 @@ Authenticated investment endpoints are available at `/v1/investment/research`, `
 MIA exposes Firecrawl search/map/scrape tools and a read-only `browserbase_inspect` tool for JavaScript-rendered public websites. Marketing website research uses Firecrawl site mapping and selected-page extraction, then supplements the homepage with Browserbase-rendered text when configured. Configure `FIRECRAWL_API_KEY` and `BROWSERBASE_API_KEY` as private server secrets; `BROWSERBASE_PROJECT_ID` is optional. Browserbase sessions are temporary and use Playwright over CDP. The browser tool blocks private/local URL targets and does not log in, submit forms, purchase, post, or modify sites.
 
 The Business Studio PDF workflow exposes `/v1/business/pdf/intake` and `/v1/business/pdf/generate`. Intake returns document-specific required questions. Generation refuses incomplete briefs and placeholder text, requests structured JSON from MIA, validates the resulting sections, and renders a professionally styled PDF with page footers. DriveNest's provider marketing integration is scoped to its listing-owner credentials and can use these routes for brochures, flyers, and childcare parent information packs.
+
+## Account-scoped MCP plugins
+
+RZ-AI supports account-scoped MCP plugins through the official Python `mcp` SDK. Plugin configurations are stored in the existing SQLite/PostgreSQL data store; HTTP headers and stdio environment variables are encrypted at rest. Set `RZ_MCP_ENCRYPTION_KEY` to a long, stable random secret in the server environment (the existing `RZ_API_KEY` is used only as a local-development fallback). Keep the encryption key stable across restarts and backups; changing it makes existing plugin credentials unreadable.
+
+Open **Plugins** in the MIA sidebar to add, inspect, enable/disable, and delete plugins. Remote plugins use HTTPS MCP SSE transport and per-plugin headers. Local stdio plugins run as child processes on the RZ-AI host; they are restricted to the operator account and to the commands `npx`, `npm`, `python`, `python3`, `uv`, and `uvx`. Only install trusted packages and grant the minimum filesystem/network permissions. Plugin tools marked read-only can run directly; tools without a read-only annotation are queued for explicit approval in Tool Center.
+
+A harmless local sample MCP server is included at `examples/sample_mcp_server.py`. From the repository root, add a Local / stdio plugin with:
+
+- Name: `RZ Sample`
+- Command: `python3`
+- Args: `/absolute/path/to/rz-ai-agent/examples/sample_mcp_server.py`
+- Environment: leave blank
+
+After it connects, ask MIA: `Use the RZ Sample plugin to call echo with message hello.` The sample server also exposes `current_status`. The sample uses only the official SDK and does not access external services.
+
+Plugin API (authenticated account): `GET /v1/plugins`, `POST /v1/plugins`, `PATCH /v1/plugins/{plugin_id}` with `{ "enabled": true|false }`, and `DELETE /v1/plugins/{plugin_id}`. Chat discovers enabled plugin tools for the authenticated owner and includes them in the bounded OpenRouter tool-calling loop. Progress events are exposed through the existing `/v1/agent/progress` polling endpoint and rendered as expandable in-chat execution cards.

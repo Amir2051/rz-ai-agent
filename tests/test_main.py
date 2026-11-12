@@ -1174,3 +1174,15 @@ def test_agent_tool_failure_after_execution_starts_does_not_replay_on_fallback(a
         app._complete_message("system", "Build and test a feature", "local:session", None, 0, 500)
     assert exc.value.status_code == 502
     assert exc.value.detail == "no replay"
+
+
+def test_ollama_fallback_fails_closed_for_mcp_tool_requests(app, monkeypatch):
+    from fastapi import HTTPException
+    monkeypatch.setattr(app, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(app, "HERMES_ENABLED", False)
+    monkeypatch.setattr(app, "OLLAMA_ENABLED", True)
+    monkeypatch.setattr(app, "_call_ollama", lambda *args, **kwargs: pytest.fail("Ollama must not receive an unsupported MCP tool request"))
+    with pytest.raises(HTTPException) as exc:
+        app._complete_message("system", "Use MCP plugin to execute echo hello", "local:mcp-fail-closed", None, None, 100)
+    assert exc.value.status_code == 503
+    assert "no plugin or agent tools were executed" in exc.value.detail
