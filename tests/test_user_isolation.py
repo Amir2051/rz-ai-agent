@@ -94,6 +94,48 @@ def test_bare_session_name_is_always_scoped_to_the_caller(app, accounts, monkeyp
     assert seen[-1] == f"{BOB['id']}:shared"
 
 
+def test_saved_conversation_can_be_restored_only_by_its_owner(app, accounts):
+    from app import capabilities
+    session_id = f"{ALICE['id']}:restore-proof"
+    history = [
+        {"role": "user", "content": "Remember this question"},
+        {"role": "assistant", "content": "This is the saved answer"},
+    ]
+    capabilities.save_conversation(ALICE["id"], session_id, history, "test-model")
+
+    alice = accounts.as_user(ALICE)
+    restored = alice.get(f"/v1/conversations/{session_id}")
+    assert restored.status_code == 200
+    assert restored.json()["conversation"]["history"] == history
+    assert restored.json()["conversation"]["model"] == "test-model"
+    listing = alice.get("/v1/conversations").json()
+    assert session_id in listing["sessions"]
+    assert any(item["session_id"] == session_id and item["model"] == "test-model" for item in listing["items"])
+    home = alice.get("/")
+    assert home.status_code == 200
+    assert 'id="conversationHistory"' in home.text
+    assert "miaRestoreConversation" in home.text
+
+    bob = accounts.as_user(BOB)
+    assert bob.get(f"/v1/conversations/{session_id}").status_code == 404
+    assert bob.get("/v1/conversations").json()["sessions"] == []
+
+
+def test_saved_conversation_restore_hides_expired_sessions(app, accounts, monkeypatch):
+    from app import capabilities
+    session_id = f"{ALICE['id']}:expired-proof"
+    capabilities.save_conversation(ALICE["id"], session_id, [], "test-model")
+    monkeypatch.setattr(app, "SESSION_TTL_SECONDS", 60)
+    # Explicitly age the row in the isolated SQLite test database.
+    conn, kind = capabilities._db()
+    try:
+        conn.execute("UPDATE rz_agent_conversations SET updated_at=? WHERE user_id=? AND session_id=?", (time.time()-120, ALICE["id"], session_id))
+        conn.commit()
+    finally:
+        conn.close()
+    assert accounts.as_user(ALICE).get(f"/v1/conversations/{session_id}").status_code == 404
+
+
 def test_conversation_list_and_reset_only_touch_own_chats(app, accounts, monkeypatch):
     _fake_reply(app, monkeypatch)
     alice = accounts.as_user(ALICE)
@@ -274,3 +316,47 @@ def test_each_slack_user_gets_their_own_account(app, monkeypatch):
         assert resp.status_code == 200
     owners = {s.split(":", 1)[0] for s in seen}
     assert owners == {"slack-T9-U111", "slack-T9-U222"}
+
+
+def test_conversation_history_survives_in_memory_session_loss(app, accounts):
+    session_id = f"{ALICE['id']}:restart-proof"
+    app._conversations[session_id] = {
+        'history': [{'role': 'user', 'content': 'persist me'}, {'role': 'assistant', 'content': 'saved'}],
+        'updated': time.time(), 'model': 'test/model',
+    }
+    app._touch_session(session_id, 'test/model')
+    with app._store_lock:
+        app._conversations.pop(session_id, None)
+    restored = app._get_session(session_id)
+    assert restored['history'] == [{'role': 'user', 'content': 'persist me'}, {'role': 'assistant', 'content': 'saved'}]
+    assert restored['model'] == 'test/model'
+    listed = accounts.as_user(ALICE).get('/v1/conversations').json()
+    assert session_id in listed['sessions']
+
+
+def test_conversation_reset_deletes_durable_history(app, accounts):
+    alice = accounts.as_user(ALICE)
+    session_id = f"{ALICE['id']}:reset-proof"
+    app.cap_services.save_conversation(ALICE['id'], session_id, [{'role': 'user', 'content': 'private'}], 'test/model')
+    with app._store_lock:
+        app._conversations[session_id] = {'history': [{'role': 'user', 'content': 'private'}], 'updated': time.time(), 'model': 'test/model'}
+    response = alice.post(f"/v1/conversations/{session_id}")
+    assert response.status_code == 200
+    assert app.cap_services.get_conversation(ALICE['id'], session_id) is None
+    assert session_id not in app._conversations
+
+
+def test_explicit_recovery_endpoint_recovers_only_callers_stale_runs(app, accounts, monkeypatch):
+    from app import capabilities
+    alice_session = f"{ALICE['id']}:recovery-session"
+    bob_session = f"{BOB['id']}:recovery-session"
+    alice_run = capabilities.create_agent_run(ALICE['id'], alice_session, 'Alice operation')
+    bob_run = capabilities.create_agent_run(BOB['id'], bob_session, 'Bob operation')
+    capabilities.record_agent_run_event(ALICE['id'], alice_run['id'], {'type': 'tool_started', 'tool': 'mia_lookup', 'call_id': 'alice-call'})
+    capabilities.record_agent_run_event(BOB['id'], bob_run['id'], {'type': 'tool_started', 'tool': 'mia_lookup', 'call_id': 'bob-call'})
+    real_time = capabilities.time.time
+    monkeypatch.setattr(capabilities.time, 'time', lambda: real_time() + 2000)
+    recovered = capabilities.recover_stale_agent_runs(ALICE['id'], 900)
+    assert recovered['count'] == 1
+    assert capabilities.list_agent_runs(ALICE['id'])['runs'][0]['status'] == 'interrupted'
+    assert capabilities.list_agent_runs(BOB['id'])['runs'][0]['status'] == 'running'

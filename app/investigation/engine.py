@@ -39,18 +39,89 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
 }
 
 ENV_KEYS = {
-    "DEHASHED_API_KEY": "DeHashed exposure search (requires DEHASHED_EMAIL too)",
-    "DEHASHED_EMAIL": "DeHashed account email (requires DEHASHED_API_KEY too)",
+    "DEHASHED_API_KEY": "DeHashed API credential",
+    "DEHASHED_EMAIL": "DeHashed account email",
     "SHODAN_API_KEY": "Shodan domain/host intelligence",
     "VT_API_KEY": "VirusTotal domain/IP intelligence",
     "HIBP_API_KEY": "Have I Been Pwned email breach lookup",
     "HUNTER_API_KEY": "Hunter email verification/domain search",
     "FIRECRAWL_API_KEY": "Firecrawl URL scraping",
     "ETHERSCAN_API_KEY": "Ethereum wallet tracing",
-    "BRAVE_SEARCH_API_KEY": "Authenticated public-source web search used by OSINT and paste-search tools",
+    "BRAVE_SEARCH_API_KEY": "Authenticated public-source web search",
+}
+
+# Readiness is grouped by service, not by individual environment variable. In
+# particular, DeHashed is unavailable unless BOTH credentials are present.
+PROVIDER_REQUIREMENTS = {
+    "dehashed": {"purpose": "Exposure search", "required_env": ["DEHASHED_API_KEY", "DEHASHED_EMAIL"]},
+    "shodan": {"purpose": "Domain and host intelligence", "required_env": ["SHODAN_API_KEY"]},
+    "virustotal": {"purpose": "Domain and IP intelligence", "required_env": ["VT_API_KEY"]},
+    "have_i_been_pwned": {"purpose": "Email breach lookup", "required_env": ["HIBP_API_KEY"]},
+    "hunter": {"purpose": "Email verification and domain search", "required_env": ["HUNTER_API_KEY"]},
+    "firecrawl": {"purpose": "Public HTTPS page scraping", "required_env": ["FIRECRAWL_API_KEY"]},
+    "etherscan": {"purpose": "Ethereum wallet and transaction lookup", "required_env": ["ETHERSCAN_API_KEY"]},
+    "brave_search": {"purpose": "Authenticated public-source search", "required_env": ["BRAVE_SEARCH_API_KEY"]},
 }
 
 MAX_QUERY_LENGTH = 500
+
+
+def provider_readiness() -> list[dict[str, Any]]:
+    """Return provider-level readiness without exposing credential values."""
+    statuses = []
+    for name, spec in PROVIDER_REQUIREMENTS.items():
+        required = list(spec["required_env"])
+        missing = [key for key in required if not os.getenv(key, "").strip()]
+        statuses.append({
+            "provider": name,
+            "purpose": spec["purpose"],
+            "configured": not missing,
+            "required_env": required,
+            "missing_env": missing,
+        })
+    return statuses
+
+
+def validate_indicator(indicator_type: str, value: Any) -> str:
+    """Validate and normalize a supported indicator before any network lookup."""
+    if indicator_type not in {"email", "domain", "ip_address", "username", "phone", "url", "wallet_address", "transaction_hash"}:
+        raise ValueError("Unsupported indicator type")
+    if not isinstance(value, str):
+        raise ValueError(f"{indicator_type} indicator must be a string")
+    normalized = value.strip()
+    if not normalized or len(normalized) > MAX_QUERY_LENGTH:
+        raise ValueError(f"{indicator_type} indicator must contain 1–{MAX_QUERY_LENGTH} characters")
+    if any(ord(char) < 32 for char in normalized):
+        raise ValueError("Indicator contains control characters")
+    if indicator_type == "ip_address":
+        try:
+            return str(ipaddress.ip_address(normalized))
+        except ValueError as exc:
+            raise ValueError("Provide a valid IP address") from exc
+    if indicator_type in {"wallet_address", "transaction_hash"}:
+        expected = 40 if indicator_type == "wallet_address" else 64
+        if not re.fullmatch(r"0x[0-9a-fA-F]{" + str(expected) + r"}", normalized):
+            raise ValueError(f"Provide a valid Ethereum {indicator_type.replace('_', ' ')}")
+    elif indicator_type == "domain":
+        domain = normalized.rstrip(".")
+        if len(domain) > 253 or not re.fullmatch(r"(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*", domain):
+            raise ValueError("Provide a valid domain name")
+        return domain.casefold()
+    elif indicator_type == "email":
+        if not re.fullmatch(r"[^\s@<>]+@[^\s@<>.]+(?:\.[^\s@<>.]+)+", normalized) or len(normalized) > 254:
+            raise ValueError("Provide a valid email address")
+    elif indicator_type == "phone":
+        digits = re.sub(r"\D", "", normalized)
+        if not 7 <= len(digits) <= 15:
+            raise ValueError("Provide a phone number containing 7–15 digits")
+    elif indicator_type == "username":
+        if not re.fullmatch(r"[A-Za-z0-9_.@+-]{1,100}", normalized):
+            raise ValueError("Username contains unsupported characters")
+    elif indicator_type == "url":
+        parsed = urlparse(normalized)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Provide a public HTTPS URL without embedded credentials")
+    return normalized
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -77,7 +148,7 @@ def _http_error(exc: Exception) -> dict[str, Any]:
         return {"status": "unavailable", "error": "Provider request timed out or was unreachable."}
     if isinstance(exc, RuntimeError) and "web search" in str(exc).lower():
         return {"status": "unavailable", "error": "Public web search is currently unavailable. Configure BRAVE_SEARCH_API_KEY for more reliable search."}
-    return {"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:180]}"}
+    return {"status": "error", "error": f"Provider request failed ({type(exc).__name__}); details were suppressed to protect request data."}
 
 def _search(query: str, limit: int = 5) -> dict[str, Any]:
     # Reuse MIA-RZ's existing bounded, HTTPS-only public web search implementation.
@@ -285,8 +356,10 @@ def _provider(name: str, value: str, kind: str, extra: dict | None = None) -> di
 def run_tool(tool_name: str, indicator_type: str, value: str) -> dict[str, Any]:
     """Run one allowlisted investigation tool with bounded input and safe output."""
     if tool_name not in TOOL_CATALOG: return {"status": "unsupported_tool", "error": "Tool is not allowlisted."}
-    value = _safe_text(value, MAX_QUERY_LENGTH)
-    if not value: return {"status": "invalid_input", "error": "Indicator value is required."}
+    try:
+        value = validate_indicator(indicator_type, value)
+    except ValueError as exc:
+        return {"status": "invalid_input", "error": str(exc)}
     if indicator_type not in TOOL_CATALOG[tool_name]["indicators"]: return {"status": "not_applicable", "error": "Tool does not support this indicator type."}
     if tool_name == "dns_lookup": return _dns(value)
     if tool_name == "reverse_dns": return _reverse_dns(value)
@@ -321,10 +394,14 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
     allowed_types = {"email", "domain", "ip_address", "username", "phone", "url", "wallet_address", "transaction_hash"}
     normalized = {}
     for key, raw in indicators.items():
-        if key not in allowed_types or raw in (None, "", []): continue
-        if not isinstance(raw, str) or len(raw.strip()) > MAX_QUERY_LENGTH:
-            raise ValueError(f"Indicator '{key}' must be a string of at most {MAX_QUERY_LENGTH} characters.")
-        normalized[key] = raw.strip()
+        if key not in allowed_types:
+            raise ValueError(f"Unsupported indicator type: {key}")
+        if raw in (None, "", []):
+            continue
+        try:
+            normalized[key] = validate_indicator(key, raw)
+        except ValueError as exc:
+            raise ValueError(f"Invalid '{key}' indicator: {exc}") from exc
     if not normalized: raise ValueError("No supported, non-empty indicators were supplied.")
 
     run_id = uuid.uuid4().hex
@@ -340,7 +417,7 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
             result = run_tool(tool, kind, value)
         except Exception as exc:
             # One unavailable adapter must not prevent the rest of the investigation.
-            result = {"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:180]}"}
+            result = {"status": "error", "error": f"Adapter failed ({type(exc).__name__}); details were suppressed to protect investigation data."}
         entry = {"tool": tool, "label": TOOL_CATALOG[tool]["label"], "indicator_type": kind, "target": value, "status": result.get("status", "unknown"), "duration_ms": round((time.monotonic() - t0) * 1000), "result": result}
         calls.append(entry)
         has_payload = result.get("status") == "success" and any(result.get(k) not in (None, "", [], {}, 0) for k in ("addresses", "hostname", "results", "data", "breaches", "transactions", "markdown", "result_count"))
@@ -385,6 +462,7 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
     # Phase 5: transparent assessment; never promote absence of data to a clean result.
     failures = [x for x in calls if x["status"] not in {"success", "no_data", "not_configured", "not_applicable"}]
     configured = {key: bool(os.getenv(key, "").strip()) for key in ENV_KEYS}
+    provider_status = provider_readiness()
     contextual_count = sum(item.get("type") == "contextual_information" for item in findings)
     substantive_observation_count = len(findings) - contextual_count
     stages.append({"phase": 5, "name": "risk_assessment", "status": "success", "finding_count": len(findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "provider_errors": len(failures), "risk_level": "undetermined", "note": "Provider success and search-result presence are not risk signals by themselves. No automated guilt/innocence or fraud determination is made."})
@@ -404,8 +482,10 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
 
     # Phase 6: machine-readable report with explicit gaps and config readiness.
     stages.append({"phase": 6, "name": "report_generation", "status": "success", "report_sections": ["summary", "tool_calls", "findings", "configuration", "limitations", "search_metrics"]})
+    run_has_success = any(x["status"] == "success" for x in calls)
+    run_has_errors = any(x["status"] not in {"success", "no_data", "not_configured", "not_applicable"} for x in calls)
     return {
-        "status": "completed" if any(x["status"] == "success" for x in calls) else "partial",
+        "status": "completed" if run_has_success and not run_has_errors else "partial",
         "run_id": run_id,
         "started_at": datetime.fromtimestamp(time.time() - (time.monotonic() - started), timezone.utc).isoformat(),
         "completed_at": _now(),
@@ -417,6 +497,11 @@ def run_investigation(indicators: dict[str, Any], *, include_optional_providers:
         "findings": findings,
         "summary": {"tools_attempted": len(calls), "tools_succeeded": sum(x["status"] == "success" for x in calls), "providers_not_configured": sum(x["status"] == "not_configured" for x in calls), "findings_requiring_review": sum(bool(item.get("requires_human_review")) for item in findings), "contextual_findings": contextual_count, "observations_requiring_review": substantive_observation_count, "sources": sources},
         "search_metrics": search_metrics,
-        "configuration": {"providers": [{"env_key": key, "purpose": purpose, "configured": configured[key]} for key, purpose in ENV_KEYS.items()]},
+        "configuration": {
+            "providers": provider_status,
+            "environment_variables": [{"env_key": key, "purpose": purpose, "configured": configured[key]} for key, purpose in ENV_KEYS.items()],
+            "configured_provider_count": sum(item["configured"] for item in provider_status),
+            "provider_count": len(provider_status),
+        },
         "limitations": ["External data can be incomplete, delayed, or incorrect.", "A provider success only confirms a response was received; it does not validate the conclusion.", "Public-search findings are retained only when the title, URL, or snippet visibly matches the indicator.", "Confidence is qualitative and describes the evidence status, not the probability of wrongdoing.", "Reserved example domains are classified as contextual information, not adverse risk evidence.", "Substantive findings require human review and corroboration; contextual-only observations do not count as adverse findings.", "Missing credentials are reported as not_configured and are never silently treated as a clean result."],
     }

@@ -443,6 +443,14 @@ def _db():
             status TEXT NOT NULL, user_request TEXT NOT NULL, events JSONB NOT NULL,
             final_response TEXT, error TEXT, created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL, PRIMARY KEY(user_id, run_id))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS rz_agent_conversations (
+            user_id TEXT NOT NULL, session_id TEXT NOT NULL, history JSONB NOT NULL,
+            model TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL, PRIMARY KEY(user_id, session_id))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS rz_investigation_records (
+            user_id TEXT NOT NULL, record_id TEXT NOT NULL, session_id TEXT NOT NULL,
+            run_id TEXT, record_type TEXT NOT NULL, payload JSONB NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL, PRIMARY KEY(user_id, record_id))''')
         conn.execute('''CREATE TABLE IF NOT EXISTS rz_terminal_approvals (
             user_id TEXT NOT NULL, job_id TEXT NOT NULL, command TEXT NOT NULL, workspace TEXT NOT NULL,
             approval TEXT NOT NULL, status TEXT NOT NULL, result TEXT, created_at DOUBLE PRECISION NOT NULL,
@@ -463,6 +471,14 @@ def _db():
         status TEXT NOT NULL, user_request TEXT NOT NULL, events TEXT NOT NULL,
         final_response TEXT, error TEXT, created_at REAL NOT NULL,
         updated_at REAL NOT NULL, PRIMARY KEY(user_id, run_id))''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS rz_agent_conversations (
+        user_id TEXT NOT NULL, session_id TEXT NOT NULL, history TEXT NOT NULL,
+        model TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+        PRIMARY KEY(user_id, session_id))''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS rz_investigation_records (
+        user_id TEXT NOT NULL, record_id TEXT NOT NULL, session_id TEXT NOT NULL,
+        run_id TEXT, record_type TEXT NOT NULL, payload TEXT NOT NULL,
+        created_at REAL NOT NULL, PRIMARY KEY(user_id, record_id))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS rz_terminal_approvals (
             user_id TEXT NOT NULL, job_id TEXT NOT NULL, command TEXT NOT NULL, workspace TEXT NOT NULL,
             approval TEXT NOT NULL, status TEXT NOT NULL, result TEXT, created_at REAL NOT NULL,
@@ -542,6 +558,86 @@ def update_task_step(user_id: str, task_id: str, index: int, status: str) -> dic
         return {'id': task_id, 'title': row[0], 'status': task_status, 'steps': steps, 'created_at': row[3], 'updated_at': now}
     finally: conn.close()
 
+
+
+
+def _validate_conversation_owner(user_id: str, session_id: str) -> None:
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
+        raise ValueError('invalid user id')
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
+        raise ValueError('invalid session id')
+    if not session_id.startswith(user_id + ':'):
+        raise ValueError('conversation does not belong to this account')
+
+
+def save_conversation(user_id: str, session_id: str, history: list, model: str) -> dict:
+    """Upsert bounded chat history under the authenticated account and session."""
+    _validate_conversation_owner(user_id, session_id)
+    if not isinstance(history, list) or len(history) > 24:
+        raise ValueError('conversation history must contain at most 24 messages')
+    safe_history = []
+    for item in history:
+        if not isinstance(item, dict) or item.get('role') not in {'user', 'assistant'} or not isinstance(item.get('content'), str):
+            raise ValueError('conversation contains an invalid message')
+        if len(item['content']) > 32000:
+            raise ValueError('conversation message exceeds 32 KB')
+        safe_history.append({'role': item['role'], 'content': item['content']})
+    serialized = json.dumps(safe_history, ensure_ascii=False, separators=(',', ':'))
+    if len(serialized.encode('utf-8')) > 300_000:
+        raise ValueError('conversation history exceeds the 300 KB storage limit')
+    if not isinstance(model, str) or not model.strip() or len(model) > 200:
+        raise ValueError('invalid conversation model')
+    conn, kind = _db(); now = time.time()
+    try:
+        if kind == 'postgres':
+            query = """INSERT INTO rz_agent_conversations(user_id,session_id,history,model,created_at,updated_at)
+                VALUES(%s,%s,%s::jsonb,%s,%s,%s) ON CONFLICT(user_id,session_id) DO UPDATE SET
+                history=EXCLUDED.history,model=EXCLUDED.model,updated_at=EXCLUDED.updated_at"""
+        else:
+            query = """INSERT INTO rz_agent_conversations(user_id,session_id,history,model,created_at,updated_at)
+                VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id) DO UPDATE SET
+                history=excluded.history,model=excluded.model,updated_at=excluded.updated_at"""
+        conn.execute(query, (user_id, session_id, serialized, model.strip(), now, now)); conn.commit()
+    finally: conn.close()
+    return {'session_id': session_id, 'history_length': len(safe_history), 'updated_at': now}
+
+
+def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 3600) -> dict | None:
+    _validate_conversation_owner(user_id, session_id)
+    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 60 <= ttl_seconds <= 604800:
+        raise ValueError('ttl_seconds must be from 60 to 604800')
+    conn, kind = _db()
+    try:
+        query = ('SELECT history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=%s AND session_id=%s AND updated_at >= %s' if kind == 'postgres' else
+                 'SELECT history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=? AND session_id=? AND updated_at >= ?')
+        row = conn.execute(query, (user_id, session_id, time.time() - ttl_seconds)).fetchone()
+    finally: conn.close()
+    if not row: return None
+    history = row[0] if isinstance(row[0], list) else json.loads(row[0])
+    return {'session_id': session_id, 'history': history, 'model': row[1], 'created_at': row[2], 'updated_at': row[3]}
+
+
+def list_conversations(user_id: str, ttl_seconds: int = 3600, limit: int = 100) -> dict:
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200: raise ValueError('invalid user id')
+    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 60 <= ttl_seconds <= 604800: raise ValueError('ttl_seconds must be from 60 to 604800')
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200: raise ValueError('limit must be from 1 to 200')
+    conn, kind = _db()
+    try:
+        query = ('SELECT session_id,updated_at,model FROM rz_agent_conversations WHERE user_id=%s AND updated_at >= %s ORDER BY updated_at DESC LIMIT %s' if kind == 'postgres' else
+                 'SELECT session_id,updated_at,model FROM rz_agent_conversations WHERE user_id=? AND updated_at >= ? ORDER BY updated_at DESC LIMIT ?')
+        rows = conn.execute(query, (user_id, time.time() - ttl_seconds, limit)).fetchall()
+    finally: conn.close()
+    sessions = [{'session_id': r[0], 'updated_at': r[1], 'model': r[2]} for r in rows]
+    return {'sessions': sessions, 'count': len(sessions)}
+
+
+def delete_conversation(user_id: str, session_id: str) -> bool:
+    _validate_conversation_owner(user_id, session_id)
+    conn, kind = _db()
+    try:
+        query = 'DELETE FROM rz_agent_conversations WHERE user_id=%s AND session_id=%s' if kind == 'postgres' else 'DELETE FROM rz_agent_conversations WHERE user_id=? AND session_id=?'
+        cur = conn.execute(query, (user_id, session_id)); conn.commit(); return cur.rowcount > 0
+    finally: conn.close()
 
 
 def create_agent_run(user_id: str, session_id: str, user_request: str) -> dict:
@@ -633,20 +729,31 @@ def recover_stale_agent_runs(user_id: str, stale_seconds: int = 900) -> dict:
         recovered = []
         for run_id, raw_events in rows:
             events = raw_events if isinstance(raw_events, list) else json.loads(raw_events)
-            # Only recent retained events are available; uncertainty always means no retry.
+            # New events track each provider/tool call independently. Legacy events
+            # fall back to tool-name matching for backward compatibility.
             starts = {}
             completed = set()
             for event in events:
-                if event.get('type') == 'tool_started':
-                    starts[event.get('tool')] = event
-                elif event.get('type') in {'tool_completed', 'tool_failed'}:
-                    completed.add(event.get('tool'))
-            uncertain = sorted(str(name) for name in starts if name not in completed)
+                if not isinstance(event, dict):
+                    continue
+                event_type = event.get('type')
+                tool = event.get('tool')
+                call_id = event.get('call_id')
+                key = str(call_id) if call_id else f"legacy:{tool}"
+                if event_type == 'tool_started':
+                    starts[key] = event
+                elif event_type in {'tool_completed', 'tool_failed'}:
+                    completed.add(key)
+            pending = {key: event for key, event in starts.items() if key not in completed}
+            uncertain = sorted(str(event.get('tool', 'unknown')) for event in pending.values())
+            uncertain_call_ids = sorted(key for key in pending if not key.startswith('legacy:'))
             events.append({'type': 'run_interrupted', 'reason': 'stale_run_recovery',
-                           'uncertain_tools': uncertain, 'resume_policy': 'manual_review_no_automatic_retry', 'at': now})
+                           'uncertain_tools': uncertain, 'uncertain_call_ids': uncertain_call_ids,
+                           'resume_policy': 'manual_review_no_automatic_retry', 'at': now})
             events = events[-100:]
             if uncertain:
                 events.append({'type': 'tool_outcome_unknown', 'tools': uncertain,
+                               'call_ids': uncertain_call_ids,
                                'action': 'Do not retry automatically; inspect side effects first.', 'at': now})
                 events = events[-100:]
             update = ('UPDATE rz_agent_runs SET status=%s,error=%s,events=%s::jsonb,updated_at=%s WHERE user_id=%s AND run_id=%s AND status=%s'
@@ -655,15 +762,74 @@ def recover_stale_agent_runs(user_id: str, stale_seconds: int = 900) -> dict:
             cur = conn.execute(update, ('interrupted', 'Recovered stale run; review history before continuing.',
                                         json.dumps(events, ensure_ascii=False), now, user_id, run_id, 'running'))
             if cur.rowcount:
-                recovered.append({'id': run_id, 'status': 'interrupted', 'uncertain_tools': uncertain})
+                recovered.append({'id': run_id, 'status': 'interrupted', 'uncertain_tools': uncertain, 'uncertain_call_ids': uncertain_call_ids})
         conn.commit()
         return {'recovered': recovered, 'count': len(recovered)}
     finally:
         conn.close()
 
 
+
+def create_investigation_record(user_id: str, session_id: str, run_id: str | None, record_type: str, payload: dict) -> dict:
+    """Persist a bounded investigation result and its evidence under the owning account."""
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
+        raise ValueError('invalid user id')
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
+        raise ValueError('invalid session id')
+    if run_id is not None and (not isinstance(run_id, str) or len(run_id) > 100):
+        raise ValueError('invalid investigation run id')
+    if record_type not in {'targeted_lookup', 'six_phase_investigation'}:
+        raise ValueError('invalid investigation record type')
+    if not isinstance(payload, dict):
+        raise ValueError('investigation payload must be an object')
+    serialized = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    if len(serialized.encode('utf-8')) > 500_000:
+        raise ValueError('investigation payload exceeds the 500 KB storage limit')
+    record_id, now = uuid.uuid4().hex, time.time()
+    conn, kind = _db()
+    try:
+        query = ('INSERT INTO rz_investigation_records(user_id,record_id,session_id,run_id,record_type,payload,created_at) '
+                 'VALUES(%s,%s,%s,%s,%s,%s::jsonb,%s)' if kind == 'postgres' else
+                 'INSERT INTO rz_investigation_records(user_id,record_id,session_id,run_id,record_type,payload,created_at) VALUES(?,?,?,?,?,?,?)')
+        conn.execute(query, (user_id, record_id, session_id, run_id, record_type, serialized, now))
+        conn.commit()
+    finally:
+        conn.close()
+    return {'id': record_id, 'run_id': run_id, 'record_type': record_type, 'created_at': now}
+
+
+def list_investigation_records(user_id: str, limit: int = 20) -> dict:
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+        raise ValueError('limit must be from 1 to 50')
+    conn, kind = _db()
+    try:
+        query = ('SELECT record_id,session_id,run_id,record_type,created_at FROM rz_investigation_records WHERE user_id=%s ORDER BY created_at DESC LIMIT %s' if kind == 'postgres' else
+                 'SELECT record_id,session_id,run_id,record_type,created_at FROM rz_investigation_records WHERE user_id=? ORDER BY created_at DESC LIMIT ?')
+        rows = conn.execute(query, (user_id, limit)).fetchall()
+    finally:
+        conn.close()
+    records = [{'id': row[0], 'session_id': row[1], 'run_id': row[2], 'record_type': row[3], 'created_at': row[4]} for row in rows]
+    return {'records': records, 'count': len(records)}
+
+
+def get_investigation_record(user_id: str, record_id: str) -> dict:
+    if not isinstance(record_id, str) or not re.fullmatch(r'[a-f0-9]{32}', record_id):
+        raise ValueError('invalid investigation record id')
+    conn, kind = _db()
+    try:
+        query = ('SELECT record_id,session_id,run_id,record_type,payload,created_at FROM rz_investigation_records WHERE user_id=%s AND record_id=%s' if kind == 'postgres' else
+                 'SELECT record_id,session_id,run_id,record_type,payload,created_at FROM rz_investigation_records WHERE user_id=? AND record_id=?')
+        row = conn.execute(query, (user_id, record_id)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise KeyError('Investigation record not found')
+    payload = row[4] if isinstance(row[4], dict) else json.loads(row[4])
+    return {'id': row[0], 'session_id': row[1], 'run_id': row[2], 'record_type': row[3], 'payload': payload, 'created_at': row[5]}
+
+
 def create_terminal_approval(user_id: str, job_id: str, command: str, workspace: str) -> dict:
-    allowed = {'pwd', 'python3 --version', 'uname -a', 'git status --short', 'git log -1 --oneline', 'git branch --show-current', 'ls -la'}
+    allowed = {'pwd', 'python3 --version', 'uname -a', 'git status --short', 'git log -1 --oneline', 'git branch --show-current', 'ls -la', 'git diff --check', 'python -m py_compile app/main.py app/intent_router.py', './.venv/bin/python -m pytest -q tests/test_intent_router.py', './.venv/bin/python -m pytest -q tests/test_firecrawl_agent_integration.py'}
     if not user_id or len(user_id) > 200 or not re.fullmatch(r'[a-f0-9]{32}', job_id): raise ValueError('invalid approval identity')
     if command not in allowed or workspace not in {'dev-terminal', 'rz-ai-agent'}: raise ValueError('command/workspace is not allowlisted')
     now = time.time(); conn, kind = _db()

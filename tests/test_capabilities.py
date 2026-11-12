@@ -434,3 +434,43 @@ def test_browser_and_firecrawl_tools_are_offered_to_mia_agent_loop(app, monkeypa
     monkeypatch.delenv("BROWSERBASE_API_KEY", raising=False)
     result = app._dispatch_mia_agent_tool("browserbase_inspect", {"url": "https://example.com"}, "owner", "session")
     assert result["status"] == "not_configured"
+
+
+def test_conversation_store_round_trip_is_durable_and_owner_scoped(app):
+    from app import capabilities
+    sid = 'alice:durable-session'
+    history = [{'role': 'user', 'content': 'Remember this thread'}, {'role': 'assistant', 'content': 'I can continue after restart'}]
+    saved = capabilities.save_conversation('alice', sid, history, 'test/model')
+    assert saved['history_length'] == 2
+    restored = capabilities.get_conversation('alice', sid)
+    assert restored['history'] == history
+    assert restored['model'] == 'test/model'
+    with pytest.raises(ValueError, match='does not belong'):
+        capabilities.get_conversation('bob', sid)
+    assert capabilities.list_conversations('alice')['sessions'][0]['session_id'] == sid
+    assert capabilities.list_conversations('bob')['count'] == 0
+    assert capabilities.delete_conversation('alice', sid) is True
+    assert capabilities.get_conversation('alice', sid) is None
+    with pytest.raises(ValueError, match='does not belong'):
+        capabilities.save_conversation('bob', sid, history, 'test/model')
+
+
+def test_conversation_store_rejects_invalid_messages_and_bounds(app):
+    from app import capabilities
+    with pytest.raises(ValueError, match='invalid message'):
+        capabilities.save_conversation('alice', 'alice:bad', [{'role': 'system', 'content': 'no'}], 'test/model')
+    with pytest.raises(ValueError, match='24 messages'):
+        capabilities.save_conversation('alice', 'alice:many', [{'role': 'user', 'content': 'x'}] * 25, 'test/model')
+
+
+def test_recovery_matches_tool_calls_not_only_tool_names(app, monkeypatch):
+    from app import capabilities
+    run = capabilities.create_agent_run('alice', 'alice:session', 'Run two same-name tools')
+    capabilities.record_agent_run_event('alice', run['id'], {'type': 'tool_started', 'tool': 'mia_lookup', 'call_id': 'call-1'})
+    capabilities.record_agent_run_event('alice', run['id'], {'type': 'tool_completed', 'tool': 'mia_lookup', 'call_id': 'call-1'})
+    capabilities.record_agent_run_event('alice', run['id'], {'type': 'tool_started', 'tool': 'mia_lookup', 'call_id': 'call-2'})
+    real_time = capabilities.time.time
+    monkeypatch.setattr(capabilities.time, 'time', lambda: real_time() + 2000)
+    recovered = capabilities.recover_stale_agent_runs('alice', 900)
+    assert recovered['recovered'][0]['uncertain_tools'] == ['mia_lookup']
+    assert recovered['recovered'][0]['uncertain_call_ids'] == ['call-2']

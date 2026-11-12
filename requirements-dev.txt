@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest
 httpx
+
+# Browser regression tests (install Chromium with: playwright install chromium)
+playwright>=1.40
