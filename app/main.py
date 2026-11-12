@@ -1298,32 +1298,67 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                     tool_execution_started = True
                     tool_result = mcp_client.agent_call(name, args, owner_id) if is_mcp else _dispatch_mia_agent_tool(name, args, owner_id, session_id)
                     event_result = tool_result
-                    if name in {"mia_safenestt_investigate", "mia_osint_lookup"} and isinstance(tool_result, dict):
-                        # Persist full evidence in the owner-scoped investigation record,
+                    if name == "mia_safenestt_investigate":
+                        # An investigation is not successful until its durable record
+                        # can be read back under the same authenticated owner.
+                        if not isinstance(tool_result, dict):
+                            raise RuntimeError("Investigation returned no structured result; completion cannot be verified")
+                        investigation_status = tool_result.get("status")
+                        investigation_run_id = tool_result.get("run_id")
+                        investigation_record_id = tool_result.get("record_id")
+                        if investigation_status not in {"completed", "partial"}:
+                            raise RuntimeError("Investigation did not reach a completed or partial report state")
+                        if not isinstance(investigation_run_id, str) or not investigation_run_id.strip():
+                            raise RuntimeError("Investigation returned no run ID; completion cannot be verified")
+                        if not isinstance(investigation_record_id, str) or not investigation_record_id.strip():
+                            raise RuntimeError("Investigation returned no persistent record ID; save cannot be verified")
+                        try:
+                            persisted_record = cap_services.get_investigation_record(owner_id, investigation_record_id)
+                        except (KeyError, ValueError) as exc:
+                            raise RuntimeError("Investigation record could not be read back from persistent storage") from exc
+                        persisted_payload = persisted_record.get("payload")
+                        if (
+                            persisted_record.get("record_type") != "six_phase_investigation"
+                            or persisted_record.get("run_id") != investigation_run_id
+                            or not isinstance(persisted_payload, dict)
+                            or persisted_payload.get("run_id") != investigation_run_id
+                            or persisted_payload.get("status") != investigation_status
+                        ):
+                            raise RuntimeError("Persisted investigation record did not match the completed result")
+                        event_result = {
+                            "status": investigation_status,
+                            "run_id": investigation_run_id,
+                            "record_id": investigation_record_id,
+                            "persistence_verified": True,
+                            "summary": tool_result.get("summary", {}),
+                            "phases": [{"phase": p.get("phase"), "name": p.get("name"), "status": p.get("status")} for p in tool_result.get("phases", []) if isinstance(p, dict)],
+                            "tool_statuses": [{"tool": x.get("tool"), "status": x.get("status")} for x in tool_result.get("tool_calls", []) if isinstance(x, dict)],
+                        }
+                    if name == "mia_osint_lookup" and isinstance(tool_result, dict):
+                        # Keep detailed provider evidence in the investigation record,
                         # not in the smaller operational event log.
-                        if name == "mia_safenestt_investigate":
-                            event_result = {
-                                "status": tool_result.get("status"),
-                                "run_id": tool_result.get("run_id"),
-                                "record_id": tool_result.get("record_id"),
-                                "summary": tool_result.get("summary", {}),
-                                "phases": [{"phase": p.get("phase"), "name": p.get("name"), "status": p.get("status")} for p in tool_result.get("phases", []) if isinstance(p, dict)],
-                                "tool_statuses": [{"tool": x.get("tool"), "status": x.get("status")} for x in tool_result.get("tool_calls", []) if isinstance(x, dict)],
-                            }
-                        else:
-                            event_result = {
-                                "record_id": tool_result.get("record_id"),
-                                "tool": tool_result.get("tool"),
-                                "indicator_type": tool_result.get("indicator_type"),
-                                "result_status": (tool_result.get("result") or {}).get("status") if isinstance(tool_result.get("result"), dict) else "unknown",
-                            }
+                        event_result = {
+                            "record_id": tool_result.get("record_id"),
+                            "tool": tool_result.get("tool"),
+                            "indicator_type": tool_result.get("indicator_type"),
+                            "result_status": (tool_result.get("result") or {}).get("status") if isinstance(tool_result.get("result"), dict) else "unknown",
+                        }
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_completed", "tool": name, "call_id": call_id, "result": event_result})
                 except (ValueError, TypeError, KeyError, RuntimeError, json.JSONDecodeError) as exc:
                     tool_result = {"error": str(exc)[:500], "completed": False}
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_failed", "tool": str(name)[:100], "call_id": call_id, "error": str(exc)[:500]})
+                    if name == "mia_safenestt_investigate":
+                        raise AgentToolExecutionError("MIA investigation failed or could not be verified; no successful investigation is being reported.") from exc
                 except HTTPException as exc:
                     tool_result = {"error": str(exc.detail)[:500], "completed": False}
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_failed", "tool": str(name)[:100], "call_id": call_id, "error": str(exc.detail)[:500]})
+                    if name == "mia_safenestt_investigate":
+                        raise AgentToolExecutionError("MIA investigation failed or could not be verified; no successful investigation is being reported.") from exc
+                except Exception as exc:
+                    if name != "mia_safenestt_investigate":
+                        raise
+                    cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_failed", "tool": str(name)[:100], "call_id": call_id, "error": f"Investigation operation failed ({type(exc).__name__}); details suppressed."})
+                    raise AgentToolExecutionError("MIA investigation failed or could not be verified; no successful investigation is being reported.") from exc
                 messages.append({"role":"tool","tool_call_id":call_id,"content":json.dumps(tool_result, ensure_ascii=False)[:24000]})
         raise HTTPException(status_code=502, detail="MIA did not complete the agent tool cycle")
     except Exception as exc:
@@ -1331,6 +1366,8 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
             cap_services.finish_agent_run(owner_id, run_id, "failed", error=str(getattr(exc, "detail", exc))[:1000])
         except Exception:
             pass
+        if isinstance(exc, AgentToolExecutionError):
+            raise
         if tool_execution_started:
             raise AgentToolExecutionError(
                 "MIA stopped after a tool started; refusing to replay the task on another provider. Retry only after checking the run history."

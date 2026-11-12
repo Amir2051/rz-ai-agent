@@ -915,10 +915,53 @@ def test_explicit_investigation_forces_tool_execution_before_any_narration(app, 
         assert any(message.get("role") == "tool" and "investigation-123" in message.get("content", "") for message in messages)
         return {"choices": [{"message": {"role": "assistant", "content": "Investigation completed. Run ID: investigation-123. Risk: undetermined."}}]}
     monkeypatch.setattr(app, "_call_openrouter", fake_completion)
-    monkeypatch.setattr(app, "_dispatch_mia_agent_tool", lambda name, args, owner, session: investigation)
+    def dispatch_and_persist(name, args, owner, session):
+        record = app.cap_services.create_investigation_record(owner, session, investigation["run_id"], "six_phase_investigation", investigation)
+        return {**investigation, "record_id": record["id"]}
+    monkeypatch.setattr(app, "_dispatch_mia_agent_tool", dispatch_and_persist)
     result = app._complete_with_mia_agent_tools("system", "Run a complete validation investigation for example.com", "owner-7:session-1", "test-model", 0, 500)
     assert len(calls) == 2
     assert "Run ID: investigation-123" in result["choices"][0]["message"]["content"]
+    history = app.cap_services.list_agent_runs("owner-7")["runs"]
+    assert history[0]["status"] == "completed"
+    completed = next(event for event in history[0]["events"] if event["type"] == "tool_completed")
+    assert completed["result"]["persistence_verified"] is True
+
+
+def test_investigation_tool_failure_fails_run_and_never_allows_success_narration(app, monkeypatch):
+    calls = []
+    def fake_completion(messages, model, temperature, max_tokens, **kwargs):
+        calls.append(messages)
+        return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [{"id": "investigate-fail", "type": "function", "function": {"name": "mia_safenestt_investigate", "arguments": json.dumps({"indicators": {"domain": "example.com"}})}}]}}]}
+    monkeypatch.setattr(app, "_call_openrouter", fake_completion)
+    def fail_dispatch(*_args, **_kwargs):
+        raise RuntimeError("simulated persistence failure")
+    monkeypatch.setattr(app, "_dispatch_mia_agent_tool", fail_dispatch)
+    with pytest.raises(app.AgentToolExecutionError, match="investigation failed or could not be verified"):
+        app._complete_with_mia_agent_tools("system", "Run a complete investigation for example.com", "owner-7:failure-1", "test-model", 0, 500)
+    assert len(calls) == 1, "model must not receive a failed tool result and narrate success"
+    history = app.cap_services.list_agent_runs("owner-7")["runs"]
+    assert history[0]["status"] == "failed"
+    assert any(event["type"] == "tool_failed" for event in history[0]["events"])
+    assert not any(event["type"] == "run_completed" for event in history[0]["events"])
+    assert app.cap_services.list_investigation_records("owner-7")["count"] == 0
+
+
+def test_investigation_without_readable_persistent_record_fails_closed(app, monkeypatch):
+    calls = []
+    result = {"status": "completed", "run_id": "investigation-no-record", "record_id": "a" * 32, "summary": {}, "phases": [], "tool_calls": []}
+    def fake_completion(messages, model, temperature, max_tokens, **kwargs):
+        calls.append(messages)
+        return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [{"id": "investigate-missing-record", "type": "function", "function": {"name": "mia_safenestt_investigate", "arguments": json.dumps({"indicators": {"domain": "example.com"}})}}]}}]}
+    monkeypatch.setattr(app, "_call_openrouter", fake_completion)
+    monkeypatch.setattr(app, "_dispatch_mia_agent_tool", lambda *_args, **_kwargs: result)
+    with pytest.raises(app.AgentToolExecutionError, match="investigation failed or could not be verified"):
+        app._complete_with_mia_agent_tools("system", "Run a complete investigation for example.com", "owner-7:missing-record", "test-model", 0, 500)
+    assert len(calls) == 1
+    history = app.cap_services.list_agent_runs("owner-7")["runs"]
+    assert history[0]["status"] == "failed"
+    assert app.cap_services.list_investigation_records("owner-7")["count"] == 0
+
 
 def test_explicit_investigation_fails_closed_if_model_skips_tool(app, monkeypatch):
     monkeypatch.setattr(app, "_call_openrouter", lambda *args, **kwargs: {"choices": [{"message": {"role": "assistant", "content": "I will proceed with the investigation."}}]})
