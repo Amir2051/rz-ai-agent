@@ -20,6 +20,8 @@ _EXPLICIT_AGENT_CUES = (
     "search and compare", "look up and summarize", "investigate and summarize",
     "research this and give me sources", "research and report back",
     "safenestt investigation", "run an investigation", "validation investigation", "complete validation investigation", "six-phase investigation", "six phase investigation", "investigate this email", "investigate this domain", "investigate this ip", "trace this wallet", "osint investigation", "threat intelligence lookup",
+    "dns lookup", "reverse dns", "check domain reputation", "check ip reputation", "check email reputation", "shodan lookup", "virustotal lookup", "have i been pwned", "dehashed search", "public paste search", "paste site search", "crypto wallet lookup", "ethereum wallet trace", "investigation provider status", "which osint providers are connected", "what investigation tools are available",
+    "run the tests", "run tests", "run pytest", "run unit tests", "test this code", "validate the build", "check the build", "run syntax checks", "check syntax", "validate git diff", "check git diff", "run local checks", "test the repository",
     "write code", "write a program", "help me code", "coding task", "implement this",
     "build a neural network", "neural network", "neural networks", "machine learning",
     "deep learning", "pytorch", "tensorflow", "scikit-learn", "train a model",

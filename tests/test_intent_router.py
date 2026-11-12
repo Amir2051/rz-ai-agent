@@ -54,3 +54,16 @@ def test_company_website_research_routes_through_agent_tools():
     from app.intent_router import should_use_agent_tools
     assert should_use_agent_tools("Research this company website: https://example.com")
     assert should_use_agent_tools("Analyze this website https://example.com")
+
+
+def test_targeted_osint_requests_use_agent_loop():
+    assert should_use_agent_tools("Run a DNS lookup for example.org")
+    assert should_use_agent_tools("Check domain reputation for example.org")
+    assert should_use_agent_tools("Use VirusTotal lookup for this IP")
+    assert should_use_agent_tools("Which OSINT providers are connected?")
+
+
+def test_local_development_validation_requests_use_agent_loop():
+    assert should_use_agent_tools("Run pytest on the repository")
+    assert should_use_agent_tools("Run syntax checks")
+    assert should_use_agent_tools("Validate git diff")

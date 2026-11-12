@@ -44,13 +44,9 @@ def test_orchestrator_returns_six_phases_and_preserves_tool_status(monkeypatch):
     assert result["summary"]["providers_not_configured"] > 0
 
 
-def test_orchestrator_validates_indicator_shape():
-    try:
-        engine.run_investigation({"password": "secret"})
-    except ValueError as exc:
-        assert "No supported" in str(exc)
-    else:
-        raise AssertionError("unsupported indicators must be rejected")
+def test_orchestrator_rejects_unsupported_indicator_keys():
+    with pytest.raises(ValueError, match="Unsupported indicator type: password"):
+        engine.run_investigation({"domain": "example.com", "password": "secret"})
 
 
 def test_optional_provider_adapters_accept_normalized_success(monkeypatch):
@@ -237,3 +233,66 @@ def test_iana_reference_fallback_is_not_used_for_ordinary_domains(monkeypatch):
     monkeypatch.setattr(engine, "urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("IANA fallback should not run")))
     result = engine.run_tool("osint_profile", "domain", "not-reserved-example.invalid")
     assert result["status"] == "unavailable"
+
+
+import pytest
+
+
+@pytest.mark.parametrize("kind,value", [
+    ("email", "not-an-email"),
+    ("domain", "https://example.com"),
+    ("ip_address", "999.1.1.1"),
+    ("phone", "123"),
+    ("url", "http://example.com"),
+    ("wallet_address", "0x1234"),
+    ("transaction_hash", "0x" + "a" * 40),
+    ("username", "bad username"),
+])
+def test_indicator_validation_rejects_malformed_values(kind, value):
+    with pytest.raises(ValueError):
+        engine.validate_indicator(kind, value)
+
+
+def test_indicator_validation_normalizes_domain_and_ip():
+    assert engine.validate_indicator("domain", " Example.COM. ") == "example.com"
+    assert engine.validate_indicator("ip_address", "2001:0db8::1") == "2001:db8::1"
+
+
+def test_investigation_rejects_malformed_indicator_before_any_provider_call(monkeypatch):
+    def unexpected_call(*args, **kwargs):
+        raise AssertionError("provider must not be called for invalid input")
+    monkeypatch.setattr(engine, "run_tool", unexpected_call)
+    with pytest.raises(ValueError, match="Invalid 'email' indicator"):
+        engine.run_investigation({"email": "not-an-email"})
+
+
+def test_provider_readiness_groups_dehashed_credentials(monkeypatch):
+    monkeypatch.setenv("DEHASHED_API_KEY", "configured-secret")
+    monkeypatch.delenv("DEHASHED_EMAIL", raising=False)
+    statuses = {item["provider"]: item for item in engine.provider_readiness()}
+    assert statuses["dehashed"]["configured"] is False
+    assert statuses["dehashed"]["missing_env"] == ["DEHASHED_EMAIL"]
+    assert "configured-secret" not in str(statuses)
+
+
+def test_provider_readiness_requires_both_dehashed_values(monkeypatch):
+    monkeypatch.setenv("DEHASHED_API_KEY", "configured-secret")
+    monkeypatch.setenv("DEHASHED_EMAIL", "analyst@example.com")
+    status = next(item for item in engine.provider_readiness() if item["provider"] == "dehashed")
+    assert status["configured"] is True
+    assert status["missing_env"] == []
+    assert "configured-secret" not in str(status)
+
+
+def test_orchestrator_reports_partial_when_any_provider_errors(monkeypatch):
+    def fake_tool(name, kind, value):
+        if name == "dns_lookup":
+            return {"status": "success", "source": "test_dns", "addresses": ["203.0.113.8"]}
+        if name == "osint_profile":
+            return {"status": "provider_error", "error": "Provider failed"}
+        return {"status": "not_configured", "required_env": ["TEST_KEY"]}
+
+    monkeypatch.setattr(engine, "run_tool", fake_tool)
+    result = engine.run_investigation({"domain": "example.com"})
+    assert result["status"] == "partial"
+    assert any(item["status"] == "provider_error" for item in result["tool_calls"])
