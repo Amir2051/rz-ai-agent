@@ -2,13 +2,29 @@ name: Python tests
 
 on:
   push:
-    branches: [master, feat/rz-capability-platform]
+    branches: [master, feat/rz-capability-platform, feature/mia-osint-tools]
   pull_request:
     branches: [master]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: rzai_test
+          POSTGRES_PASSWORD: rzai_test_password
+          POSTGRES_DB: rzai_integration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rzai_test -d rzai_integration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      RZ_TEST_POSTGRES_URL: postgresql://rzai_test:rzai_test_password@127.0.0.1:5432/rzai_integration_test
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -17,11 +33,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest httpx
+          python -m pip install -r requirements-dev.txt
+      - name: Install Chromium for browser regression tests
+        run: python -m playwright install --with-deps chromium
       - name: Compile application and tests
         run: python -m compileall -q app tests
       - name: Run test suite

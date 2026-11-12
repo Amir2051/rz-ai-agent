@@ -13,6 +13,16 @@ cp .env.example .env
 
 Edit `.env` and set `RZ_API_KEY` and `OPENROUTER_API_KEY`. Keep `.env` private; never commit it.
 
+## Development tests
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m pytest -q
+```
+
+The browser regression tests run the MIA conversation-history, agent-run recovery, and investigation-record panels in isolated headless Chromium with stubbed API responses; they do not contact live providers or production databases. The PostgreSQL integration tests require `RZ_TEST_POSTGRES_URL` and refuse to run unless it targets the dedicated local `rzai_test` / `rzai_integration_test` database. CI starts a disposable PostgreSQL 17 service and runs these integration tests alongside the full suite.
+
 ## Run locally
 
 ```bash
@@ -155,6 +165,7 @@ Example MCP tool call after authentication:
 - `GET /v1/tools` reports available capabilities and explicit limitations.
 - `POST /v1/research` accepts `{ "query": "...", "limit": 5 }` and returns bounded web search results. Configure `BRAVE_SEARCH_API_KEY` for reliable search; an unauthenticated DuckDuckGo HTML attempt is best-effort and returns an explicit error if blocked. Explicit prompts such as “search the web” or “research online” include retrieved snippets in chat synthesis. Search results are untrusted and should be verified at source. MIA also exposes `firecrawl_search` and `firecrawl_scrape` inside its bounded agent loop when `FIRECRAWL_API_KEY` is configured as a private server environment variable. Firecrawl results are untrusted external content; scraping is limited to public HTTPS URLs, bounded output, and explicit tool allowlists.
 - `POST /v1/investment/research` accepts `{ "query": "...", "limit": 4 }` and runs three bounded searches covering primary company/fund sources, recent developments, and independent risk analysis. It returns source-linked groups, a research timestamp, and limitations. Search snippets are leads, not live quotes or verified financial statements. Configure `BRAVE_SEARCH_API_KEY` for more reliable hosted search. Investment requests are routed through MIA's bounded agent tools; they do not execute trades or guarantee a buy/sell signal.
+- MIA agent investigations expose `mia_osint_lookup` for one targeted lookup and `mia_investigation_capabilities` for provider-readiness checks; `mia_safenestt_investigate` remains the full six-phase workflow. Targeted lookups reuse the allowlisted DNS/reverse-DNS, public-source OSINT, reputation, DeHashed, public paste-site, Shodan, VirusTotal, HIBP, Hunter, Firecrawl, and Etherscan adapters. Missing API credentials are returned as `not_configured`, not treated as clean results. Only public-source/authorized use is supported; observations require human review and are not proof of identity or wrongdoing.
 - `POST /v1/investment/quotes` accepts `{ "symbols": ["AAPL", "SPY"] }` and returns quote metadata, source URLs, market timestamps, quote age, and a stale flag. The initial connector uses the Yahoo Finance chart endpoint as a prototype third-party source, not a guaranteed real-time or licensed market-data feed. Users must verify timestamps and data before making decisions; there are no trading operations.
 - `POST /v1/images/generations` accepts `{ "prompt": "...", "reference_image_url": "https://..." }` (reference optional; when supplied, the image model uses it as an input reference for enhancement) and uses the shared `OPENROUTER_API_KEY` with `POST https://openrouter.ai/api/v1/images` by default. Default model: `bytedance-seed/seedream-4.5`; every generated image may incur a charge, so check current model pricing before use. You can override `IMAGE_GENERATION_ENDPOINT`, `IMAGE_GENERATION_API_KEY`, and `IMAGE_GENERATION_MODEL`. The UI displays the actual returned image and reports model/cost metadata when present; provider errors are not faked.
 - `POST /v1/documents/analyze` accepts `{ "filename": "notes.pdf", "content_base64": "...", "question": "Summarize this" }`. Upload limit is 3 MB; extracted text is capped at 40,000 characters. Supported formats include TXT, Markdown, source code, JSON, CSV, DOCX, and PDF. PDF extraction uses `pypdf`.
