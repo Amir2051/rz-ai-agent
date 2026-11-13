@@ -67,3 +67,14 @@ def test_local_development_validation_requests_use_agent_loop():
     assert should_use_agent_tools("Run pytest on the repository")
     assert should_use_agent_tools("Run syntax checks")
     assert should_use_agent_tools("Validate git diff")
+
+
+def test_gmail_read_requests_use_agent_loop():
+    assert should_use_agent_tools("Can you access my Gmail using the Gmail plugin?")
+    assert should_use_agent_tools("Search my inbox for the latest invoice")
+    assert should_use_agent_tools("Find emails from my accountant")
+    assert should_use_agent_tools("Read my email about the appointment")
+
+
+def test_email_composition_alone_does_not_force_gmail_tools():
+    assert not should_use_agent_tools("Write an email to my landlord asking about the lease")
