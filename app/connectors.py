@@ -338,7 +338,7 @@ def tool_schemas(user_id: str) -> list[dict]:
     }]
     specs = {
         "google": [
-            ("gmail_search_messages", "Search Gmail messages using Gmail query syntax", {"query": {"type": "string", "maxLength": 500}, "limit": {"type": "integer", "minimum": 1, "maximum": 25}}, ["query"]),
+            ("gmail_search_messages", "Search Gmail using Gmail query syntax. For requests asking for the latest or newest messages, search broadly enough to include all requested senders (do not narrow to one product or sender unless specified), retrieve the returned message metadata, and rely only on the actual Gmail message IDs and internalDate values returned by this tool. Results are verified and sorted newest-first by Gmail internalDate; never invent or infer message IDs, subjects, senders, or timestamps.", {"query": {"type": "string", "maxLength": 500}, "limit": {"type": "integer", "minimum": 1, "maximum": 25}}, ["query"]),
             ("gmail_get_message", "Read a Gmail message by message ID", {"message_id": {"type": "string", "maxLength": 200}}, ["message_id"]),
         ],
         "github": [
@@ -431,15 +431,60 @@ def execute_tool(user_id: str, name: str, args: dict) -> dict:
     if name.startswith("appconn_gmail_"):
         token = _token(user_id, "google")
         if name == "appconn_gmail_search_messages":
-            result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages", token, params={"q": str(args.get("query", ""))[:500], "maxResults": min(max(int(args.get("limit", 10)), 1), 25)})
-            return {"resultSizeEstimate": result.get("resultSizeEstimate", 0), "messages": result.get("messages", []), "note": "Use gmail_get_message for message contents."}
+            query = str(args.get("query", ""))[:500]
+            limit = min(max(int(args.get("limit", 10)), 1), 25)
+            result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages", token, params={"q": query, "maxResults": limit})
+            candidates = result.get("messages", []) if isinstance(result, dict) else []
+            verified = []
+            for candidate in candidates[:limit]:
+                message_id = candidate.get("id") if isinstance(candidate, dict) else None
+                if not isinstance(message_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", message_id):
+                    continue
+                metadata = _get(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + message_id,
+                    token,
+                    params={"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]},
+                )
+                internal_date = metadata.get("internalDate") if isinstance(metadata, dict) else None
+                try:
+                    received_ms = int(internal_date)
+                except (TypeError, ValueError):
+                    continue
+                headers = {
+                    item.get("name", "").lower(): item.get("value", "")
+                    for item in (metadata.get("payload", {}) or {}).get("headers", [])
+                    if isinstance(item, dict)
+                }
+                # Only return IDs and timestamps supplied by Gmail itself. No
+                # Date-header parsing or model-generated fallback is permitted.
+                if metadata.get("id") != message_id:
+                    continue
+                verified.append({
+                    "id": message_id,
+                    "threadId": metadata.get("threadId"),
+                    "internalDate": str(received_ms),
+                    "from": headers.get("from"),
+                    "to": headers.get("to"),
+                    "subject": headers.get("subject"),
+                    "date": headers.get("date"),
+                })
+            verified.sort(key=lambda item: int(item["internalDate"]), reverse=True)
+            return {
+                "resultSizeEstimate": result.get("resultSizeEstimate", 0),
+                "returnedCount": len(verified),
+                "query": query,
+                "sort": "internalDate_desc",
+                "timestamps_verified_by": "Gmail API messages.get",
+                "messages": verified,
+                "note": "These are only messages returned by Gmail API and individually verified by message ID and internalDate. Results are newest-first. Do not add, replace, or embellish message details. Fetch message bodies only with gmail_get_message.",
+            }
         if name == "appconn_gmail_get_message":
             message_id = str(args.get("message_id", ""))
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", message_id):
                 raise HTTPException(422, "Invalid Gmail message ID")
             result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + message_id, token, params={"format": "full"})
             headers = {x.get("name", "").lower(): x.get("value", "") for x in result.get("payload", {}).get("headers", []) if isinstance(x, dict)}
-            return {"id": result.get("id"), "threadId": result.get("threadId"), "snippet": result.get("snippet"), "from": headers.get("from"), "to": headers.get("to"), "subject": headers.get("subject"), "date": headers.get("date"), "body": _gmail_body(result.get("payload", {})), "note": "Message content is private user data; do not disclose outside this account."}
+            return {"id": result.get("id"), "threadId": result.get("threadId"), "internalDate": result.get("internalDate"), "snippet": result.get("snippet"), "from": headers.get("from"), "to": headers.get("to"), "subject": headers.get("subject"), "date": headers.get("date"), "body": _gmail_body(result.get("payload", {})), "note": "Message content and metadata are returned by Gmail for this account. Do not disclose outside this account or invent missing fields."}
         raise HTTPException(404, "Gmail tool not found")
     if name.startswith("appconn_github_"):
         token = _token(user_id, "github")
