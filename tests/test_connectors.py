@@ -127,3 +127,42 @@ def test_broken_connector_does_not_hide_other_connector_tools(app,monkeypatch):
     assert 'appconn_list_connected_apps' in names
     assert 'appconn_github_list_repositories' in names
     assert 'appconn_gmail_search_messages' not in names
+
+
+def test_gmail_search_returns_only_real_ids_and_sorts_by_gmail_internal_date(app, monkeypatch):
+    from app import connectors as c
+    c._save('alice','google','sub-1','alice@example.com',{'access_token':'gmail-token'})
+    responses = {
+        'messages': {
+            'resultSizeEstimate': 3,
+            'messages': [{'id':'18f-real-newest'},{'id':'17f-real-oldest'},{'id':'19f-real-middle'}],
+        },
+        '18f-real-newest': {
+            'id':'18f-real-newest','threadId':'t-new','internalDate':'1794500000000',
+            'payload':{'headers':[{'name':'From','value':'alerts@google.com'},{'name':'Subject','value':'Newest'}]},
+        },
+        '17f-real-oldest': {
+            'id':'17f-real-oldest','threadId':'t-old','internalDate':'1794400000000',
+            'payload':{'headers':[{'name':'From','value':'workspace.google.com'},{'name':'Subject','value':'Oldest'}]},
+        },
+        '19f-real-middle': {
+            'id':'19f-real-middle','threadId':'t-mid','internalDate':'1794450000000',
+            'payload':{'headers':[{'name':'From','value':'pay.google.com'},{'name':'Subject','value':'Middle'}]},
+        },
+    }
+    calls=[]
+    def fake_get(url, token, *, params=None, **kwargs):
+        calls.append((url, params))
+        if url.endswith('/messages'):
+            return responses['messages']
+        message_id=url.rsplit('/',1)[-1]
+        return responses[message_id]
+    monkeypatch.setattr(c,'_get',fake_get)
+    result=c.execute_tool('alice','appconn_gmail_search_messages',{'query':'in:inbox from:google','limit':10})
+    assert [m['id'] for m in result['messages']]==['18f-real-newest','19f-real-middle','17f-real-oldest']
+    assert [m['subject'] for m in result['messages']]==['Newest','Middle','Oldest']
+    assert result['sort']=='internalDate_desc'
+    assert result['timestamps_verified_by']=='Gmail API messages.get'
+    assert result['returnedCount']==3
+    assert len(calls)==4
+    assert all(m['id'] in {'18f-real-newest','17f-real-oldest','19f-real-middle'} for m in result['messages'])
