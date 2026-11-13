@@ -901,7 +901,7 @@ def test_mia_agent_loop_executes_task_tool_then_summarizes_verified_result(app, 
     assert len(calls) == 2
     # A non-operator account is never offered the operator's GitHub or local terminal tools.
     offered = {tool["function"]["name"] for tool in calls[0][1]["tools"]}
-    assert offered == {tool["function"]["name"] for tool in app.MIA_AGENT_TOOLS} - app.OPERATOR_ONLY_AGENT_TOOLS
+    assert offered == ({tool["function"]["name"] for tool in app.MIA_AGENT_TOOLS} - app.OPERATOR_ONLY_AGENT_TOOLS) | {"appconn_list_connected_apps"}
 
 def test_explicit_investigation_forces_tool_execution_before_any_narration(app, monkeypatch):
     calls = []
