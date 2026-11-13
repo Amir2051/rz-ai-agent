@@ -67,3 +67,13 @@ def test_local_development_validation_requests_use_agent_loop():
     assert should_use_agent_tools("Run pytest on the repository")
     assert should_use_agent_tools("Run syntax checks")
     assert should_use_agent_tools("Validate git diff")
+
+
+def test_pdf_generation_requests_use_mia_agent_tool_loop():
+    from app.intent_router import should_use_agent_tools
+    for prompt in (
+        "Create a PDF report from these notes",
+        "Generate PDF for my business proposal",
+        "Turn this into a PDF I can download",
+    ):
+        assert should_use_agent_tools(prompt)

@@ -1176,6 +1176,40 @@ def test_agent_tool_failure_after_execution_starts_does_not_replay_on_fallback(a
     assert exc.value.detail == "no replay"
 
 
+def test_mia_pdf_tool_generates_persists_and_owner_scopes_download(app):
+    from fastapi.testclient import TestClient
+    names = {item["function"]["name"] for item in app.MIA_AGENT_TOOLS}
+    assert "mia_create_pdf" in names
+    app._validate_mia_agent_tool_args("mia_create_pdf", {
+        "title": "MIA Test Report", "content": "# Summary\n\nA real downloadable report."
+    })
+    result = app._dispatch_mia_agent_tool("mia_create_pdf", {
+        "title": "MIA Test Report", "content": "# Summary\n\nA real downloadable report.",
+        "filename": "mia-test-report.pdf",
+    }, "local", "local:pdf-test")
+    assert result["status"] == "created"
+    assert result["download_url"] == f"/v1/documents/generated/{result['document_id']}"
+    assert result["size_bytes"] > 100
+    response = TestClient(app.app).get(result["download_url"], headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"].find("mia-test-report.pdf") >= 0
+    assert response.content.startswith(b"%PDF-")
+    try:
+        app.cap_services.get_generated_document("another-user", result["document_id"])
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("generated PDF must not be readable by another owner")
+
+
+def test_mia_pdf_download_requires_authentication_and_valid_id(app):
+    from fastapi.testclient import TestClient
+    client = TestClient(app.app)
+    assert client.get("/v1/documents/generated/0123456789abcdef0123456789abcdef").status_code == 401
+    assert client.get("/v1/documents/generated/not-a-document", headers={"X-API-Key": "test-key"}).status_code == 400
+
+
 def test_ollama_fallback_fails_closed_for_mcp_tool_requests(app, monkeypatch):
     from fastapi import HTTPException
     monkeypatch.setattr(app, "OPENROUTER_API_KEY", "")

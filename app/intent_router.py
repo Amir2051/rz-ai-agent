@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 _EXPLICIT_AGENT_CUES = (
+    "create a pdf", "create pdf", "generate a pdf", "generate pdf", "make a pdf", "make pdf", "download as pdf", "export as pdf", "turn this into a pdf", "save this as a pdf", "create a downloadable report",
     "mcp", "supabase", "connected tools", "outside tools",
     "act as an agent", "agent mode", "use your tools", "use tools to",
     "use your tools to", "plan and execute", "research and create",
