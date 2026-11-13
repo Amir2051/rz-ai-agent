@@ -65,8 +65,11 @@ def test_connected_account_only_gets_its_own_native_tools(app,monkeypatch):
     from app import connectors as c
     c._save('alice','github','42','@alice',{'access_token':'gh-test-token'})
     schemas=c.tool_schemas('alice')
-    assert schemas and all(x['function']['name'].startswith('appconn_github_') for x in schemas)
-    assert c.tool_schemas('bob')==[]
+    names={x['function']['name'] for x in schemas}
+    assert 'appconn_list_connected_apps' in names
+    assert 'appconn_github_list_repositories' in names
+    assert all(name == 'appconn_list_connected_apps' or name.startswith('appconn_github_') for name in names)
+    assert {x['function']['name'] for x in c.tool_schemas('bob')} == {'appconn_list_connected_apps'}
     calls=[]
     monkeypatch.setattr(c,'_get',lambda url,token,**kwargs:calls.append((url,token)) or [{'id':1,'name':'repo'}])
     result=c.execute_tool('alice','appconn_github_list_repositories',{'limit':5})
@@ -92,3 +95,35 @@ def test_native_connector_tool_runs_through_mia_agent_loop(app, monkeypatch):
     assert result['choices'][0]['message']['content']=='Found one email.'
     assert calls==[('alice',tool_name,{'query':'from:boss'})]
     assert len(rounds)==2
+
+
+def test_connected_app_inventory_is_owner_scoped_and_never_returns_credentials(app):
+    from app import connectors as c
+    c._save('alice','google','sub-1','alice@example.com',{'access_token':'private-google-token'})
+    c._save('alice','github','42','@alice',{'access_token':'private-github-token'})
+    c._save('bob','stripe','acct-bob','Bob Stripe',{'access_token':'rk_test_private'})
+    result=c.execute_tool('alice','appconn_list_connected_apps',{})
+    assert result['count']==2
+    assert {item['provider'] for item in result['integrations']}=={'google','github'}
+    assert all(item['status']=='connected' for item in result['integrations'])
+    serialized=str(result)
+    assert 'private-google-token' not in serialized
+    assert 'private-github-token' not in serialized
+    assert 'rk_test_private' not in serialized
+    assert c.execute_tool('bob','appconn_list_connected_apps',{})['count']==1
+
+
+def test_broken_connector_does_not_hide_other_connector_tools(app,monkeypatch):
+    from app import connectors as c
+    c._save('alice','google','sub-1','alice@example.com',{'access_token':'google-token'})
+    c._save('alice','github','42','@alice',{'access_token':'github-token'})
+    original=c._read
+    def selective_read(user_id,provider):
+        if provider=='google':
+            raise RuntimeError('simulated decrypt failure')
+        return original(user_id,provider)
+    monkeypatch.setattr(c,'_read',selective_read)
+    names={x['function']['name'] for x in c.tool_schemas('alice')}
+    assert 'appconn_list_connected_apps' in names
+    assert 'appconn_github_list_repositories' in names
+    assert 'appconn_gmail_search_messages' not in names
