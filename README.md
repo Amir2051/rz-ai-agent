@@ -250,3 +250,28 @@ A harmless local sample MCP server is included at `examples/sample_mcp_server.py
 After it connects, ask MIA: `Use the RZ Sample plugin to call echo with message hello.` The sample server also exposes `current_status`. The sample uses only the official SDK and does not access external services.
 
 Plugin API (authenticated account): `GET /v1/plugins`, `POST /v1/plugins`, `PATCH /v1/plugins/{plugin_id}` with `{ "enabled": true|false }`, and `DELETE /v1/plugins/{plugin_id}`. Chat discovers enabled plugin tools for the authenticated owner and includes them in the bounded OpenRouter tool-calling loop. Progress events are exposed through the existing `/v1/agent/progress` polling endpoint and rendered as expandable in-chat execution cards.
+
+## Native app connectors (Gmail, GitHub, Stripe)
+
+The Plugins view also contains per-user native app connectors. OAuth state is one-time, expires after ten minutes, and is bound to the initiating RZ-AI user. Connector tokens are encrypted at rest using the same stable `RZ_MCP_ENCRYPTION_KEY` as MCP credentials. Do not rotate that key without migrating/re-encrypting existing credentials.
+
+Configure these server-side environment variables in the RZ-AI deployment; never put provider client secrets in browser code:
+
+- Google Gmail: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`.
+- GitHub App: `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_REDIRECT_URI`, `GITHUB_APP_SLUG`.
+- Optional Stripe Connect OAuth: `STRIPE_CONNECT_CLIENT_ID`, `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_REDIRECT_URI`.
+- Credential encryption: set a stable, random `RZ_MCP_ENCRYPTION_KEY` before connecting accounts.
+
+Register these exact callback paths on the provider applications, using the production hostname:
+
+- `https://rz-ai.safenestt.com/v1/connectors/google/callback`
+- `https://rz-ai.safenestt.com/v1/connectors/github/callback`
+- `https://rz-ai.safenestt.com/v1/connectors/stripe/callback`
+
+Google setup: enable the Gmail API and configure a Web application OAuth client. The initial connector asks only for `gmail.readonly` plus OpenID/email identity. Gmail's restricted scope may require Google's OAuth verification and security assessment before broad public release.
+
+GitHub setup: create a GitHub App, enable **Request user authorization (OAuth) during installation**, set the callback above, and configure only read permissions for Metadata, Contents, Issues, and Pull requests. Set `GITHUB_APP_SLUG` to the app's URL slug. Users install the app to their account or organization before the user-authorization callback completes.
+
+Stripe setup: for a user's own Stripe account, use the Plugins view's restricted-key field and create an `rk_live_` or `rk_test_` key with only the read permissions needed for Account, Customers, Payment Intents, and Invoices. Do not use a full `sk_` secret key. Stripe Connect OAuth is optional and the read-only OAuth scope is available to Connect Extensions (not ordinary Connect platforms); use it only if RZ-AI is registered as a Stripe Connect Extension. Its extension client ID and platform secret are configured separately. Stripe's current Connect API guidance prefers the platform secret key plus a `Stripe-Account` header for connected-account requests.
+
+The current native tool set is read-only: Gmail search/read, GitHub repository/issue/PR listing, and Stripe customer/payment/invoice listing. External write operations are intentionally not exposed in this first release; add them later behind the existing explicit-approval workflow.
