@@ -9,10 +9,11 @@ import secrets
 import time
 import uuid
 from urllib.parse import urlencode
+import base64
 
 import httpx
 from cryptography.fernet import InvalidToken
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -55,8 +56,7 @@ def _provider_config(provider: str) -> dict:
     if provider == "github":
         return {"client_id": os.getenv("GITHUB_APP_CLIENT_ID", "").strip(),
                 "client_secret": os.getenv("GITHUB_APP_CLIENT_SECRET", "").strip(),
-                "redirect_uri": os.getenv("GITHUB_APP_REDIRECT_URI", "").strip(),
-                "slug": os.getenv("GITHUB_APP_SLUG", "").strip()}
+                "redirect_uri": os.getenv("GITHUB_APP_REDIRECT_URI", "").strip()}
     if provider == "stripe":
         return {"client_id": os.getenv("STRIPE_CONNECT_CLIENT_ID", "").strip(),
                 "client_secret": os.getenv("STRIPE_SECRET_KEY", "").strip(),
@@ -67,7 +67,7 @@ def _provider_config(provider: str) -> dict:
 def _configured(provider: str) -> bool:
     cfg = _provider_config(provider)
     if provider == "github":
-        return all(cfg.get(k) for k in ("client_id", "client_secret", "redirect_uri", "slug")) and cfg["redirect_uri"].startswith("https://")
+        return all(cfg.get(k) for k in ("client_id", "client_secret", "redirect_uri")) and cfg["redirect_uri"].startswith("https://")
     return all(cfg.get(k) for k in ("client_id", "client_secret", "redirect_uri")) and cfg["redirect_uri"].startswith("https://")
 
 
@@ -154,10 +154,13 @@ def _http_json(method: str, url: str, *, data=None, headers=None, params=None, a
         raise HTTPException(502, "Could not reach the connected service") from None
 
 
-def _oauth_exchange(provider: str, code: str) -> dict:
+def _oauth_exchange(provider: str, code: str, code_verifier: str = "") -> dict:
     cfg = _provider_config(provider)
     if provider == "google":
-        token = _http_json("POST", "https://oauth2.googleapis.com/token", data={"code": code, "client_id": cfg["client_id"], "client_secret": cfg["client_secret"], "redirect_uri": cfg["redirect_uri"], "grant_type": "authorization_code"})
+        token_data = {"code": code, "client_id": cfg["client_id"], "client_secret": cfg["client_secret"], "redirect_uri": cfg["redirect_uri"], "grant_type": "authorization_code"}
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
+        token = _http_json("POST", "https://oauth2.googleapis.com/token", data=token_data)
         if not token.get("access_token"):
             raise HTTPException(502, "Google did not return an access token")
         token["expires_at"] = time.time() + int(token.get("expires_in", 3600))
@@ -165,7 +168,10 @@ def _oauth_exchange(provider: str, code: str) -> dict:
         profile = _http_json("GET", "https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
         return {"credentials": token, "external_id": profile.get("sub") or profile.get("email") or "google-user", "label": profile.get("email") or "Google account"}
     if provider == "github":
-        token = _http_json("POST", "https://github.com/login/oauth/access_token", data={"client_id": cfg["client_id"], "client_secret": cfg["client_secret"], "code": code, "redirect_uri": cfg["redirect_uri"]}, headers={"Accept": "application/json"})
+        token_data = {"client_id": cfg["client_id"], "client_secret": cfg["client_secret"], "code": code, "redirect_uri": cfg["redirect_uri"]}
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
+        token = _http_json("POST", "https://github.com/login/oauth/access_token", data=token_data, headers={"Accept": "application/json"})
         if not token.get("access_token"):
             raise HTTPException(502, "GitHub did not return an access token")
         if token.get("expires_in"):
@@ -205,43 +211,70 @@ def list_connectors(user: dict = Depends(_user)):
     return {"connectors": providers}
 
 
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    return verifier, challenge
+
+
+def _pkce_cookie_name(state: str) -> str:
+    return "rz_oauth_pkce_" + hashlib.sha256(state.encode("utf-8")).hexdigest()[:32]
+
+
 @router.get("/{provider}/connect")
-def connect(provider: str, user: dict = Depends(_user)):
+def connect(provider: str, response: Response, user: dict = Depends(_user)):
     if provider not in {"google", "github", "stripe"}:
         raise HTTPException(404, "Connector not found")
     cfg = _provider_config(provider)
     if not _configured(provider):
         if provider == "stripe":
-            raise HTTPException(503, "Use a Stripe restricted API key for your own account, or configure Stripe Connect OAuth for connected accounts.")
+            raise HTTPException(503, "Configure Stripe Connect OAuth before connecting a Stripe account.")
         raise HTTPException(503, f"{provider.title()} OAuth is not configured on RZ-AI yet")
     state = _state_create(_uid(user), provider)
+    if provider in {"google", "github"}:
+        verifier, challenge = _pkce_pair()
+        response.set_cookie(_pkce_cookie_name(state), verifier, max_age=STATE_TTL,
+                            httponly=True, secure=cfg["redirect_uri"].startswith("https://"),
+                            samesite="lax", path=f"/v1/connectors/{provider}/callback")
     if provider == "google":
-        params = {"client_id": cfg["client_id"], "redirect_uri": cfg["redirect_uri"], "response_type": "code", "scope": "openid email https://www.googleapis.com/auth/gmail.readonly", "access_type": "offline", "include_granted_scopes": "true", "prompt": "consent", "state": state}
+        params = {"client_id": cfg["client_id"], "redirect_uri": cfg["redirect_uri"], "response_type": "code", "scope": "openid email https://www.googleapis.com/auth/gmail.readonly", "access_type": "offline", "include_granted_scopes": "true", "prompt": "consent", "state": state, "code_challenge": challenge, "code_challenge_method": "S256"}
         url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
     elif provider == "github":
-        url = "https://github.com/apps/" + cfg["slug"] + "/installations/new?" + urlencode({"state": state})
+        params = {"client_id": cfg["client_id"], "redirect_uri": cfg["redirect_uri"], "state": state, "code_challenge": challenge, "code_challenge_method": "S256", "allow_signup": "false"}
+        url = "https://github.com/login/oauth/authorize?" + urlencode(params)
     else:
         url = "https://connect.stripe.com/oauth/authorize?" + urlencode({"response_type": "code", "client_id": cfg["client_id"], "scope": "read_only", "state": state, "redirect_uri": cfg["redirect_uri"]})
     return {"authorization_url": url, "expires_in_seconds": STATE_TTL}
 
 
 @router.get("/{provider}/callback")
-def callback(provider: str, code: str = "", state: str = "", error: str = "", installation_id: str = ""):
+def callback(provider: str, request: Request, code: str = "", state: str = "", error: str = ""):
     if provider not in {"google", "github", "stripe"}:
         raise HTTPException(404, "Connector not found")
     if error:
-        return RedirectResponse("/?connector=declined", status_code=303)
+        if state:
+            try:
+                _state_consume(state, provider)
+            except HTTPException:
+                pass
+        response = RedirectResponse("/settings/mcp?connector=declined", status_code=303)
+        if state and provider in {"google", "github"}:
+            response.delete_cookie(_pkce_cookie_name(state), path=f"/v1/connectors/{provider}/callback")
+        return response
     if not code or len(code) > 4096:
         raise HTTPException(400, "Authorization code missing or invalid")
     user_id = _state_consume(state, provider)
-    result = _oauth_exchange(provider, code)
-    credentials = result["credentials"]
-    if provider == "github":
-        if not installation_id or not installation_id.isdigit():
-            raise HTTPException(400, "GitHub App installation was not returned. Enable user authorization during installation and try again.")
-        credentials["installation_id"] = installation_id
-    _save(user_id, provider, result["external_id"], result["label"], credentials)
-    return RedirectResponse("/?connector=" + provider + "_connected", status_code=303)
+    verifier = ""
+    if provider in {"google", "github"}:
+        verifier = request.cookies.get(_pkce_cookie_name(state), "")
+        if not verifier or len(verifier) > 200:
+            raise HTTPException(400, "OAuth verifier cookie missing; restart the app connection")
+    result = _oauth_exchange(provider, code, code_verifier=verifier)
+    _save(user_id, provider, result["external_id"], result["label"], result["credentials"])
+    response = RedirectResponse("/settings/mcp?connector=" + provider + "_connected", status_code=303)
+    if provider in {"google", "github"}:
+        response.delete_cookie(_pkce_cookie_name(state), path=f"/v1/connectors/{provider}/callback")
+    return response
 
 
 @router.post("/stripe/api-key")

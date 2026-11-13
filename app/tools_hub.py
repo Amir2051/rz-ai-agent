@@ -270,7 +270,7 @@ def _execute(user_id: str, tool_id: str, action: dict) -> dict:
             raise HTTPException(status_code=502, detail=str(exc)[:500]) from None
     if tool_id == "mcp_plugins":
         from app import plugin_manager
-        try: return plugin_manager.call_plugin_by_id(user_id,action["plugin_id"],action["tool_name"],action["arguments"])
+        try: return plugin_manager.call_plugin_by_id(user_id,action["plugin_id"],action["tool_name"],action["arguments"],approved=True)
         except plugin_manager.PluginError as exc: raise HTTPException(status_code=502,detail=str(exc)[:500]) from None
     raise HTTPException(status_code=422, detail="Unknown or unsupported tool action")
 

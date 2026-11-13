@@ -1,6 +1,6 @@
 """Owner-scoped MCP plugin registry and official Python MCP SDK bridge."""
 from __future__ import annotations
-import asyncio, base64, hashlib, json, os, re, time, uuid
+import asyncio, base64, hashlib, ipaddress, json, os, re, socket, time, uuid
 from urllib.parse import urlparse
 from cryptography.fernet import Fernet, InvalidToken
 from app import capabilities
@@ -46,13 +46,87 @@ def _validate_config(data):
         return {"name":name.strip(),"transport":transport,"command":command,"args":args,"env":env}
     url=data.get("url")
     if not isinstance(url,str) or len(url)>2000: raise PluginError("Remote server URL is required")
-    parsed=urlparse(url)
-    if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise PluginError("Remote MCP URL must be HTTPS and must not embed credentials")
+    _validate_remote_url(url)
     headers=data.get("headers",{})
     if not isinstance(headers,dict) or len(headers)>30: raise PluginError("Headers must be an object with at most 30 entries")
     for k,v in headers.items():
         if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",str(k)) or not isinstance(v,str) or len(v)>4000 or "\r" in v or "\n" in v: raise PluginError("Invalid HTTP header")
     return {"name":name.strip(),"transport":transport,"url":url,"headers":headers}
+
+
+def _resolve_public_remote_url(url):
+    """Resolve an HTTPS destination and return only fully validated public IPs."""
+    try:
+        parsed=urlparse(url)
+        if (parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password
+                or parsed.fragment or parsed.hostname.endswith(".")):
+            raise PluginError("Remote MCP URL must be a public HTTPS URL without credentials or fragments")
+        host=parsed.hostname.encode("idna").decode("ascii")
+        port=parsed.port or 443
+        if not 1 <= port <= 65535:
+            raise PluginError("Remote MCP URL has an invalid port")
+        try:
+            literal=ipaddress.ip_address(host.strip("[]"))
+            addresses={literal}
+        except ValueError:
+            answers=socket.getaddrinfo(host,port,type=socket.SOCK_STREAM)
+            addresses={ipaddress.ip_address(answer[4][0].split("%",1)[0]) for answer in answers}
+        if not addresses or any(not address.is_global for address in addresses):
+            raise PluginError("Remote MCP URL resolves to a non-public or restricted network address")
+        return host,port,tuple(sorted((str(address) for address in addresses)))
+    except PluginError:
+        raise
+    except (ValueError, UnicodeError, OSError, socket.gaierror):
+        raise PluginError("Remote MCP URL is invalid or its hostname could not be safely resolved") from None
+
+
+def _validate_remote_url(url):
+    """Reject non-public remote destinations before saving and before every connection."""
+    _resolve_public_remote_url(url)
+    return True
+
+
+def _mcp_httpx_client_factory(headers=None, timeout=None, auth=None):
+    """Use request-time DNS validation and pin TCP to those validated IPs.
+
+    TLS remains bound to the original URL hostname: httpcore receives the original
+    origin and supplies that hostname as SNI/certificate name after the pinned TCP
+    connection is established. Environment proxies are disabled so they cannot
+    resolve the destination independently of this pinning layer.
+    """
+    import httpx
+    import httpcore
+
+    class PinnedNetworkBackend(httpcore.AnyIOBackend):
+        def __init__(self):
+            self._pins={}
+        async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+            candidates=self._pins.get((host.lower().rstrip("."),port))
+            if not candidates:
+                raise OSError("Remote MCP destination was not DNS-pinned")
+            # Every candidate was checked as globally routable immediately before
+            # this request. Select one without asking the resolver again.
+            return await super().connect_tcp(candidates[0],port,timeout,local_address,socket_options)
+
+    class PublicOnlyTransport(httpx.AsyncBaseTransport):
+        def __init__(self):
+            self.inner=httpx.AsyncHTTPTransport(trust_env=False)
+            self.backend=PinnedNetworkBackend()
+            # HTTPX 0.27's AsyncHTTPTransport owns an httpcore connection pool;
+            # replacing its backend preserves HTTPX's TLS/SNI and pooling behavior.
+            self.inner._pool._network_backend=self.backend
+        async def handle_async_request(self, request):
+            host,port,addresses=_resolve_public_remote_url(str(request.url))
+            self.backend._pins[(host.lower().rstrip("."),port)]=addresses
+            return await self.inner.handle_async_request(request)
+        async def aclose(self):
+            await self.inner.aclose()
+
+    kwargs={"follow_redirects":False,"transport":PublicOnlyTransport(),"trust_env":False}
+    if headers is not None: kwargs["headers"]=headers
+    if timeout is not None: kwargs["timeout"]=timeout
+    if auth is not None: kwargs["auth"]=auth
+    return httpx.AsyncClient(**kwargs)
 
 def create_plugin(user_id,data):
     config=_validate_config(data); plugin_id=uuid.uuid4().hex; now=time.time()
@@ -133,17 +207,18 @@ async def _session(config):
                 await session.initialize();yield session
     else:
         url=config["url"];headers=config.get("headers",{})
+        _validate_remote_url(url)
         # Prefer modern MCP Streamable HTTP; fall back to legacy SSE for older servers.
         stack=AsyncExitStack()
         try:
             try:
-                read,write,_=await stack.enter_async_context(streamablehttp_client(url,headers=headers,timeout=15,sse_read_timeout=60))
+                read,write,_=await stack.enter_async_context(streamablehttp_client(url,headers=headers,timeout=15,sse_read_timeout=60,httpx_client_factory=_mcp_httpx_client_factory))
                 session=await stack.enter_async_context(ClientSession(read,write))
                 await session.initialize()
             except Exception as first:
                 await stack.aclose();stack=AsyncExitStack()
                 try:
-                    read,write=await stack.enter_async_context(sse_client(url,headers=headers,timeout=15,sse_read_timeout=60))
+                    read,write=await stack.enter_async_context(sse_client(url,headers=headers,timeout=15,sse_read_timeout=60,httpx_client_factory=_mcp_httpx_client_factory))
                     session=await stack.enter_async_context(ClientSession(read,write))
                     await session.initialize()
                 except Exception as second:
@@ -190,9 +265,7 @@ def plugin_tools(user_id):
                 schema=tool.get("inputSchema")
                 if not isinstance(schema,dict) or schema.get("type")!="object": schema={"type":"object","properties":{}}
                 # Tool names are globally unique in this account's OpenRouter request.
-                annotations=tool.get("annotations") or {}
-                readonly=isinstance(annotations,dict) and annotations.get("readOnlyHint") is True
-                mode="read-only" if readonly else "WRITE ACTION — requires explicit user approval before execution"
+                mode="UNTRUSTED REMOTE ACTION — requires explicit user approval before execution"
                 tools.append({"type":"function","function":{"name":f"mcp_{plugin['id'][:12]}_{name}","description":f"[MCP plugin: {plugin['name']} · {mode}] {str(tool.get('description') or name)[:650]}","parameters":schema}})
         except Exception as exc:
             print("RZ_MCP_PLUGIN_DISCOVERY_ERROR",{"plugin_id":plugin["id"],"type":type(exc).__name__},flush=True)
@@ -212,16 +285,13 @@ def call_plugin_tool(user_id,agent_name,args):
     # Validate shape/required fields; JSON Schema is enforced by the remote server too.
     for key in schema.get("required",[]):
         if key not in args: raise PluginError(f"Missing required tool argument: {key}")
-    annotations=tool.get("annotations") or {}
-    if not (isinstance(annotations,dict) and annotations.get("readOnlyHint") is True):
-        from app import tools_hub
-        if not tools_hub._enabled(user_id,"mcp_plugins"):
-            return {"completed":False,"error":"MCP plugin write actions are disabled in Tool Center."}
-        approval=tools_hub.queue_approval(user_id,"mcp_plugins",{"plugin_id":plugin["id"],"tool_name":match.group(2),"arguments":args},f"Run {match.group(2)} on MCP plugin {plugin['name']}")
-        return {"status":"approval_required","completed":False,"approval_id":approval["approval_id"],"message":"This MCP tool can change data. It has not run; approve it in Tool Center to continue."}
-    return _run(_invoke(record["config"],match.group(2),args))
+    from app import tools_hub
+    if not tools_hub._enabled(user_id,"mcp_plugins"):
+        return {"completed":False,"error":"MCP plugin actions are disabled in Tool Center."}
+    approval=tools_hub.queue_approval(user_id,"mcp_plugins",{"plugin_id":plugin["id"],"tool_name":match.group(2),"arguments":args},f"Run {match.group(2)} on MCP plugin {plugin['name']}")
+    return {"status":"approval_required","completed":False,"approval_id":approval["approval_id"],"message":"Remote MCP actions are untrusted. Nothing has run; approve this action in Tool Center to continue."}
 
-def call_plugin_by_id(user_id,plugin_id,tool_name,args):
+def call_plugin_by_id(user_id,plugin_id,tool_name,args,*,approved=False):
     plugin=next((p for p in list_plugins(user_id) if p["id"]==plugin_id and p["enabled"]),None)
     if not plugin: raise PluginError("MCP plugin is disabled or unavailable")
     record=_read(user_id,plugin_id);discovered=_run(_discover(record["config"]))
@@ -230,6 +300,12 @@ def call_plugin_by_id(user_id,plugin_id,tool_name,args):
     if not isinstance(args,dict) or len(json.dumps(args))>20000: raise PluginError("Tool arguments must be a JSON object under 20 KB")
     for key in (tool.get("inputSchema") or {}).get("required",[]):
         if key not in args: raise PluginError(f"Missing required tool argument: {key}")
+    if not approved:
+        from app import tools_hub
+        if not tools_hub._enabled(user_id,"mcp_plugins"):
+            raise PluginError("MCP plugin actions are disabled in Tool Center")
+        approval=tools_hub.queue_approval(user_id,"mcp_plugins",{"plugin_id":plugin_id,"tool_name":tool_name,"arguments":args},f"Run {tool_name} on MCP plugin {plugin['name']}")
+        return {"status":"approval_required","completed":False,"approval_id":approval["approval_id"],"message":"Remote MCP actions are untrusted. Nothing has run; approve this action in Tool Center to continue."}
     return _run(_invoke(record["config"],tool_name,args))
 
 def inspect_plugin(user_id,plugin_id):

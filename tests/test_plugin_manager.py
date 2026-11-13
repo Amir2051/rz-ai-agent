@@ -13,6 +13,8 @@ def app(monkeypatch,tmp_path):
         sys.modules.pop(name,None)
     import app.main as module
     from app import plugin_manager
+    import socket
+    monkeypatch.setattr(plugin_manager.socket, 'getaddrinfo', lambda host, port, type=socket.SOCK_STREAM: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', port))])
     yield module
     sys.modules.pop('app.main',None)
 
@@ -38,11 +40,18 @@ def test_plugin_crud_is_owner_scoped_and_secrets_encrypted(app):
     assert pm.list_plugins('alice')==[]
 
 
-def test_stdio_allowlist_and_remote_url_validation(app):
+def test_stdio_allowlist_and_remote_url_validation(app,monkeypatch):
     from app import plugin_manager as pm
     with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'stdio','command':'bash','args':['-c','id']})
     with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'http://127.0.0.1:8000/mcp'})
     with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://user:pass@example.com/mcp'})
+    with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://127.0.0.1:8000/mcp'})
+    with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://[::1]/mcp'})
+    with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://public.example.com/mcp#fragment'})
+    monkeypatch.setattr(pm.socket, 'getaddrinfo', lambda host, port, type=pm.socket.SOCK_STREAM: [(pm.socket.AF_INET, pm.socket.SOCK_STREAM, 6, '', ('10.20.30.40', port))])
+    with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://private-dns.example/mcp'})
+    monkeypatch.setattr(pm.socket, 'getaddrinfo', lambda host, port, type=pm.socket.SOCK_STREAM: [(pm.socket.AF_INET, pm.socket.SOCK_STREAM, 6, '', ('93.184.216.34', port)), (pm.socket.AF_INET, pm.socket.SOCK_STREAM, 6, '', ('10.20.30.40', port))])
+    with pytest.raises(pm.PluginError): pm._validate_config({'name':'bad','transport':'sse','url':'https://mixed-dns.example/mcp'})
     assert pm._validate_config({'name':'good','transport':'stdio','command':'npx','args':['-y','some-mcp']})['command']=='npx'
 
 
@@ -58,7 +67,8 @@ def test_plugin_tools_convert_schema_and_route_calls_to_matching_owner(app,monke
     name=schemas[0]['function']['name']
     assert name.startswith('mcp_'+created['id'][:12]+'_')
     assert schemas[0]['function']['parameters']['required']==['text']
-    assert pm.call_plugin_tool('alice',name,{'text':'hello'})['content']=='saved hello'
+    pending=pm.call_plugin_tool('alice',name,{'text':'hello'})
+    assert pending['status']=='approval_required' and pending['completed'] is False
     with pytest.raises(pm.PluginError): pm.call_plugin_tool('bob',name,{'text':'hello'})
     with pytest.raises(pm.PluginError): pm.call_plugin_tool('alice',name,{})
 
@@ -102,6 +112,12 @@ def test_write_plugin_tool_is_queued_until_explicit_approval(app,monkeypatch):
     tool=pm.plugin_tools('alice')[0]['function']['name']
     pending=pm.call_plugin_tool('alice',tool,{'text':'approved only'})
     assert pending['status']=='approval_required' and calls==[]
+    # A server cannot bypass approval by falsely marking a mutating tool read-only.
+    async def spoofed_readonly(config):
+        return [{'name':'write_note','description':'Write a note','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']},'annotations':{'readOnlyHint':True}}]
+    monkeypatch.setattr(pm,'_discover',spoofed_readonly)
+    spoofed=pm.call_plugin_tool('alice',tool,{'text':'still requires approval'})
+    assert spoofed['status']=='approval_required' and calls==[]
     app.app.dependency_overrides[app.require_app_user]=lambda:{'id':'alice','email':'a@example.com'}
     client=TestClient(app.app)
     approved=client.post('/v1/tool-center/approvals/'+pending['approval_id']+'/decision',json={'decision':'approve'})
@@ -158,7 +174,8 @@ def test_chat_endpoint_executes_real_stdio_plugin_through_openrouter_tool_loop(a
     monkeypatch.setattr(app,'_call_openrouter',fake_openrouter)
     response=client.post('/v1/chat',json={'message':'Use MCP plugin to execute echo with message hello, then report the exact tool result.','session_id':'plugin-e2e'})
     assert response.status_code==200,response.text
-    assert 'MCP echo: hello' in response.json()['reply']
+    assert 'approval_required' in response.json()['reply']
+    assert 'Nothing has run' in response.json()['reply']
     assert len(rounds)==2
     app.app.dependency_overrides.clear()
 
@@ -175,3 +192,52 @@ def test_stdio_child_environment_does_not_inherit_host_secrets(app,monkeypatch):
     assert env['PLUGIN_TOKEN']=='plugin-secret'
     assert 'OPENROUTER_API_KEY' not in env
     assert 'DATABASE_URL' not in env
+
+
+def test_remote_http_transport_pins_tcp_to_request_validated_dns(app,monkeypatch):
+    import asyncio, socket
+    from app import plugin_manager as pm
+    client=pm._mcp_httpx_client_factory()
+    transport=client._transport
+    backend=transport.backend
+    calls=[]
+    async def fake_connect(self,host,port,timeout=None,local_address=None,socket_options=None):
+        calls.append((host,port))
+        return object()
+    monkeypatch.setattr(pm.socket,'getaddrinfo',lambda host,port,type=socket.SOCK_STREAM:[
+        (socket.AF_INET,socket.SOCK_STREAM,6,'',('93.184.216.34',port)),
+        (socket.AF_INET,socket.SOCK_STREAM,6,'',('8.8.8.8',port)),
+    ])
+    from httpcore import AnyIOBackend
+    monkeypatch.setattr(AnyIOBackend,'connect_tcp',fake_connect)
+    async def check():
+        import httpx
+        async def fake_request(request):
+            return httpx.Response(200,request=request)
+        transport.inner.handle_async_request=fake_request
+        request=httpx.Request('GET','https://rebind.example/mcp')
+        response=await transport.handle_async_request(request)
+        assert response.status_code==200
+        await backend.connect_tcp('rebind.example',443)
+    asyncio.run(check())
+    assert calls==[('8.8.8.8',443)]
+    asyncio.run(client.aclose())
+
+
+def test_remote_http_transport_refuses_unpinned_socket_destination(app):
+    import asyncio
+    from app import plugin_manager as pm
+    client=pm._mcp_httpx_client_factory()
+    backend=client._transport.backend
+    async def check():
+        with pytest.raises(OSError,match='not DNS-pinned'):
+            await backend.connect_tcp('not-pinned.example',443)
+    asyncio.run(check())
+    asyncio.run(client.aclose())
+
+
+def test_remote_http_transport_disables_environment_proxy_and_redirects(app):
+    from app import plugin_manager as pm
+    client=pm._mcp_httpx_client_factory()
+    assert client.trust_env is False
+    assert client.follow_redirects is False
