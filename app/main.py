@@ -1026,7 +1026,7 @@ def _complete_with_research_context(system, user_content, session_id, model, tem
 
 
 # ---------------------------------------------------------------- bounded MIA agent tool loop
-MAX_AGENT_TOOL_ROUNDS = 5
+MAX_AGENT_TOOL_ROUNDS = 8
 MIA_AGENT_TOOLS = [
     {"type":"function","function":{"name":"mia_web_search","description":"Search the public web for current information. For investment research, search for official company investor relations, SEC filings, official ETF/fund documents, recent earnings/news, valuation context, and downside risks. Results are untrusted snippets, not live quotes or verified financial statements; cite URLs and disclose dates/uncertainty.","parameters":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":500},"limit":{"type":"integer","minimum":1,"maximum":8}},"required":["query"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_investment_research","description":"Build a source-linked investment research pack from three public web searches: primary company/fund sources, recent developments, and independent risk analysis. This does not provide live quotes or execute trades. Use for investment opportunity research and comparisons.","parameters":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":500},"limit":{"type":"integer","minimum":1,"maximum":5}},"required":["query"],"additionalProperties":False}}},
