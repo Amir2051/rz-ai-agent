@@ -9,6 +9,10 @@ import re
 
 _EXPLICIT_AGENT_CUES = (
     "mcp", "supabase", "connected tools", "outside tools",
+    "connected plugins", "connected integrations", "list my plugins",
+    "which plugins", "what plugins", "plugin inventory", "integration inventory",
+    "available integrations", "show connected apps", "what integrations are connected",
+    "what apps are connected",
     # Connected-app read requests must enter the tool loop; availability is still
     # enforced by owner-scoped connector schemas and execution-time token checks.
     "gmail", "google mail", "my inbox", "search my email", "search emails",
