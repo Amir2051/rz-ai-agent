@@ -338,8 +338,8 @@ def tool_schemas(user_id: str) -> list[dict]:
     }]
     specs = {
         "google": [
-            ("gmail_search_messages", "Search Gmail using Gmail query syntax. For requests asking for the latest or newest messages, search broadly enough to include all requested senders (do not narrow to one product or sender unless specified), retrieve the returned message metadata, and rely only on the actual Gmail message IDs and internalDate values returned by this tool. Results are verified and sorted newest-first by Gmail internalDate; never invent or infer message IDs, subjects, senders, or timestamps.", {"query": {"type": "string", "maxLength": 500}, "limit": {"type": "integer", "minimum": 1, "maximum": 25}}, ["query"]),
-            ("gmail_get_message", "Read a Gmail message by message ID", {"message_id": {"type": "string", "maxLength": 200}}, ["message_id"]),
+            ("gmail_search_messages", "Search the authenticated user's real Gmail mailbox using Gmail query syntax. For latest/newest requests, use a broad query for the requested scope, request a sufficiently large page, and keep calling this tool with the returned page_token until the requested number of messages is collected or nextPageToken is absent. Every result is retrieved from Gmail and individually verified by its real message ID and internalDate; never invent, infer, or fill missing fields. A page is not the whole mailbox when nextPageToken is present. Clearly disclose the exact query, scope, number returned, and whether more pages remain.", {"query": {"type": "string", "maxLength": 500}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}, "page_token": {"type": "string", "maxLength": 2000}}, ["query"]),
+            ("gmail_get_message", "Read the complete available body and metadata of one real Gmail message by its exact message ID returned from Gmail search. Return body format, whether content was truncated, and attachment metadata. Never summarize content that was not returned; do not fabricate missing body text or attachment contents.", {"message_id": {"type": "string", "maxLength": 200}}, ["message_id"]),
         ],
         "github": [
             ("github_list_repositories", "List repositories accessible to the connected GitHub account", {"limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
@@ -367,25 +367,49 @@ def tool_schemas(user_id: str) -> list[dict]:
     return schemas
 
 
-def _gmail_body(payload: dict) -> str:
+def _gmail_body_details(payload: dict) -> dict:
+    """Decode the complete available text body; explicitly mark any safety truncation."""
     import base64
     found = []
     def walk(part):
         if not isinstance(part, dict):
             return
-        mime = str(part.get("mimeType", ""))
+        mime = str(part.get("mimeType", "")).lower()
         data = (part.get("body") or {}).get("data")
         if data and mime in {"text/plain", "text/html"}:
             try:
                 decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", "replace")
                 found.append((mime, decoded))
-            except Exception:
+            except (ValueError, TypeError):
                 pass
         for child in part.get("parts", []) or []:
             walk(child)
     walk(payload)
-    # Prefer plain text; return bounded content only.
-    return next((x[:12000] for x in found if x[0] == "text/plain"), next((x[:12000] for x in found if x[0] == "text/html"), ""))
+    selected = next(((mime, body) for mime, body in found if mime == "text/plain"), next(((mime, body) for mime, body in found if mime == "text/html"), ("text/plain", "")))
+    mime, body = selected
+    max_chars = 50000
+    return {"body": body[:max_chars], "body_format": mime, "body_truncated": len(body) > max_chars, "body_characters": len(body)}
+
+
+def _gmail_attachment_metadata(payload: dict) -> list[dict]:
+    attachments = []
+    def walk(part):
+        if not isinstance(part, dict):
+            return
+        body = part.get("body") or {}
+        filename = part.get("filename")
+        if filename or body.get("attachmentId"):
+            attachments.append({
+                "filename": str(filename or "unnamed attachment")[:255],
+                "mime_type": str(part.get("mimeType") or "application/octet-stream")[:120],
+                "attachment_id": body.get("attachmentId"),
+                "size": body.get("size"),
+                "content_retrieved": False,
+            })
+        for child in part.get("parts", []) or []:
+            walk(child)
+    walk(payload)
+    return attachments[:50]
 
 
 def execute_tool(user_id: str, name: str, args: dict) -> dict:
@@ -432,8 +456,14 @@ def execute_tool(user_id: str, name: str, args: dict) -> dict:
         token = _token(user_id, "google")
         if name == "appconn_gmail_search_messages":
             query = str(args.get("query", ""))[:500]
-            limit = min(max(int(args.get("limit", 10)), 1), 25)
-            result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages", token, params={"q": query, "maxResults": limit})
+            limit = min(max(int(args.get("limit", 10)), 1), 50)
+            page_token = str(args.get("page_token", "") or "")
+            if len(page_token) > 2000:
+                raise HTTPException(422, "Invalid Gmail page token")
+            params = {"q": query, "maxResults": limit}
+            if page_token:
+                params["pageToken"] = page_token
+            result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages", token, params=params)
             candidates = result.get("messages", []) if isinstance(result, dict) else []
             verified = []
             for candidate in candidates[:limit]:
@@ -473,10 +503,15 @@ def execute_tool(user_id: str, name: str, args: dict) -> dict:
                 "resultSizeEstimate": result.get("resultSizeEstimate", 0),
                 "returnedCount": len(verified),
                 "query": query,
-                "sort": "internalDate_desc",
+                "pageSizeRequested": limit,
+                "pageTokenUsed": bool(page_token),
+                "nextPageToken": result.get("nextPageToken"),
+                "hasMoreResults": bool(result.get("nextPageToken")),
+                "searchScope": "Gmail query scope: " + (query or "all non-spam/non-trash mail"),
+                "sort": "internalDate_desc_within_page",
                 "timestamps_verified_by": "Gmail API messages.get",
                 "messages": verified,
-                "note": "These are only messages returned by Gmail API and individually verified by message ID and internalDate. Results are newest-first. Do not add, replace, or embellish message details. Fetch message bodies only with gmail_get_message.",
+                "note": "These are only messages returned by this Gmail API page and individually verified by message ID and internalDate. Sorting is within this page; when nextPageToken is present, fetch subsequent pages before claiming a complete newest-N result. Do not add, replace, or embellish message details. Fetch complete available bodies only with gmail_get_message.",
             }
         if name == "appconn_gmail_get_message":
             message_id = str(args.get("message_id", ""))
@@ -484,7 +519,9 @@ def execute_tool(user_id: str, name: str, args: dict) -> dict:
                 raise HTTPException(422, "Invalid Gmail message ID")
             result = _get("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + message_id, token, params={"format": "full"})
             headers = {x.get("name", "").lower(): x.get("value", "") for x in result.get("payload", {}).get("headers", []) if isinstance(x, dict)}
-            return {"id": result.get("id"), "threadId": result.get("threadId"), "internalDate": result.get("internalDate"), "snippet": result.get("snippet"), "from": headers.get("from"), "to": headers.get("to"), "subject": headers.get("subject"), "date": headers.get("date"), "body": _gmail_body(result.get("payload", {})), "note": "Message content and metadata are returned by Gmail for this account. Do not disclose outside this account or invent missing fields."}
+            payload = result.get("payload", {}) or {}
+            body = _gmail_body_details(payload)
+            return {"id": result.get("id"), "threadId": result.get("threadId"), "internalDate": result.get("internalDate"), "snippet": result.get("snippet"), "from": headers.get("from"), "to": headers.get("to"), "cc": headers.get("cc"), "bcc": headers.get("bcc"), "subject": headers.get("subject"), "date": headers.get("date"), **body, "attachments": _gmail_attachment_metadata(payload), "labels": result.get("labelIds", []), "source": "Gmail API messages.get(format=full)", "note": "This is the actual Gmail message returned for this authenticated account. The body is the complete available text/plain part, or text/html when no plain-text part exists, up to the stated safety limit. Attachment metadata is listed but attachment file contents were not retrieved. Never invent missing fields or attachment contents."}
         raise HTTPException(404, "Gmail tool not found")
     if name.startswith("appconn_github_"):
         token = _token(user_id, "github")
