@@ -309,6 +309,39 @@ def _pdf_missing(document_type: str, values: dict[str, str]) -> list[dict]:
     return missing
 
 
+
+def render_markdown_pdf_bytes(title: str, content: str) -> bytes:
+    """Render bounded Markdown into a safe, downloadable PDF."""
+    if not isinstance(title, str) or not title.strip() or len(title) > 180: raise ValueError("title must contain 1–180 characters")
+    if not isinstance(content, str) or not content.strip() or len(content) > 30000: raise ValueError("content must contain 1–30,000 characters")
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from xml.sax.saxutils import escape
+    output = io.BytesIO(); styles = getSampleStyleSheet()
+    navy, teal = colors.HexColor("#17324f"), colors.HexColor("#2b8a9a")
+    styles.add(ParagraphStyle(name="MIA_GeneratedTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=23, leading=29, textColor=navy, alignment=TA_LEFT, spaceAfter=14))
+    styles.add(ParagraphStyle(name="MIA_GeneratedBody", parent=styles["BodyText"], fontName="Helvetica", fontSize=9.5, leading=14, textColor=colors.HexColor("#273849"), spaceAfter=7))
+    story = [Paragraph(escape(title.strip()), styles["MIA_GeneratedTitle"]), HRFlowable(width="100%", thickness=2, color=teal, spaceAfter=16)]
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line: story.append(Spacer(1, 5)); continue
+        if line.startswith("### "): story.append(Paragraph(escape(line[4:]), styles["Heading3"]))
+        elif line.startswith("## "): story.append(Paragraph(escape(line[3:]), styles["Heading2"]))
+        elif line.startswith("# "): story.append(Paragraph(escape(line[2:]), styles["Heading1"]))
+        elif line.startswith(("- ", "* ", "• ")): story.append(Paragraph("&#8226; " + escape(line[2:]), styles["MIA_GeneratedBody"]))
+        elif line.startswith("> "): story.append(Paragraph(escape(line[2:]), styles["Quote"]))
+        else: story.append(Paragraph(escape(line), styles["MIA_GeneratedBody"]))
+    def footer(canvas, doc):
+        canvas.saveState(); width, _ = LETTER
+        canvas.setStrokeColor(colors.HexColor("#d9e2ea")); canvas.setLineWidth(.5); canvas.line(.72*inch, .55*inch, width-.72*inch, .55*inch)
+        canvas.setFont("Helvetica", 8); canvas.setFillColor(colors.HexColor("#607286")); canvas.drawString(.72*inch, .38*inch, title.strip()[:80]); canvas.drawRightString(width-.72*inch, .38*inch, f"Page {doc.page}"); canvas.restoreState()
+    SimpleDocTemplate(output, pagesize=LETTER, rightMargin=.72*inch, leftMargin=.72*inch, topMargin=.68*inch, bottomMargin=.78*inch, title=title.strip()[:180], author="MIA · RZ Agent").build(story, onFirstPage=footer, onLaterPages=footer)
+    return output.getvalue()
+
 def _render_structured_pdf(title: str, filename: str, document: dict) -> StreamingResponse:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT

@@ -88,3 +88,11 @@ def test_connected_plugin_inventory_routes_through_agent_tools():
     assert should_use_agent_tools("List my connected plugins")
     assert should_use_agent_tools("Which integrations are connected?")
     assert should_use_agent_tools("Show connected apps and their available tools")
+def test_pdf_generation_requests_use_mia_agent_tool_loop():
+    from app.intent_router import should_use_agent_tools
+    for prompt in (
+        "Create a PDF report from these notes",
+        "Generate PDF for my business proposal",
+        "Turn this into a PDF I can download",
+    ):
+        assert should_use_agent_tools(prompt)

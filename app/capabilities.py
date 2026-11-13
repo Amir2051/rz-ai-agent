@@ -828,6 +828,54 @@ def get_investigation_record(user_id: str, record_id: str) -> dict:
     return {'id': row[0], 'session_id': row[1], 'run_id': row[2], 'record_type': row[3], 'payload': payload, 'created_at': row[5]}
 
 
+
+def create_generated_document(user_id: str, session_id: str, filename: str, title: str, content: bytes, content_type: str = "application/pdf") -> dict:
+    """Persist a generated artifact under its owner so chat can return a durable download URL."""
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200: raise ValueError("invalid user id")
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300: raise ValueError("invalid session id")
+    if not isinstance(filename, str) or not filename.strip() or len(filename) > 120: raise ValueError("invalid document filename")
+    if not isinstance(title, str) or not title.strip() or len(title) > 180: raise ValueError("invalid document title")
+    if not isinstance(content, bytes) or not content or len(content) > 10_000_000: raise ValueError("document must contain 1 byte to 10 MB")
+    if content_type != "application/pdf" or not content.startswith(b"%PDF-"): raise ValueError("generated artifact is not a valid PDF")
+    document_id, now = uuid.uuid4().hex, time.time()
+    conn, kind = _db()
+    try:
+        blob_type = "BYTEA" if kind == "postgres" else "BLOB"
+        real_type = "DOUBLE PRECISION" if kind == "postgres" else "REAL"
+        int_type = "BIGINT" if kind == "postgres" else "INTEGER"
+        conn.execute(f"""CREATE TABLE IF NOT EXISTS rz_generated_documents (
+            user_id TEXT NOT NULL, document_id TEXT NOT NULL, session_id TEXT NOT NULL,
+            filename TEXT NOT NULL, title TEXT NOT NULL, content {blob_type} NOT NULL,
+            content_type TEXT NOT NULL, size_bytes {int_type} NOT NULL, created_at {real_type} NOT NULL,
+            PRIMARY KEY(user_id, document_id))""")
+        if kind == "postgres":
+            conn.execute("INSERT INTO rz_generated_documents VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)", (user_id, document_id, session_id, filename, title, content, content_type, len(content), now))
+        else:
+            conn.execute("INSERT INTO rz_generated_documents VALUES(?,?,?,?,?,?,?,?,?)", (user_id, document_id, session_id, filename, title, sqlite3.Binary(content), content_type, len(content), now))
+        conn.commit()
+    finally: conn.close()
+    return {"id": document_id, "filename": filename, "title": title, "content_type": content_type, "size_bytes": len(content), "created_at": now}
+
+
+def get_generated_document(user_id: str, document_id: str) -> dict:
+    """Retrieve one generated artifact only when its owner matches the authenticated user."""
+    if not isinstance(document_id, str) or not re.fullmatch(r"[a-f0-9]{32}", document_id): raise ValueError("invalid document id")
+    conn, kind = _db()
+    try:
+        blob_type = "BYTEA" if kind == "postgres" else "BLOB"
+        real_type = "DOUBLE PRECISION" if kind == "postgres" else "REAL"
+        int_type = "BIGINT" if kind == "postgres" else "INTEGER"
+        conn.execute(f"""CREATE TABLE IF NOT EXISTS rz_generated_documents (
+            user_id TEXT NOT NULL, document_id TEXT NOT NULL, session_id TEXT NOT NULL,
+            filename TEXT NOT NULL, title TEXT NOT NULL, content {blob_type} NOT NULL,
+            content_type TEXT NOT NULL, size_bytes {int_type} NOT NULL, created_at {real_type} NOT NULL,
+            PRIMARY KEY(user_id, document_id))""")
+        query = "SELECT document_id,filename,title,content,content_type,size_bytes,created_at FROM rz_generated_documents WHERE user_id=%s AND document_id=%s" if kind == "postgres" else "SELECT document_id,filename,title,content,content_type,size_bytes,created_at FROM rz_generated_documents WHERE user_id=? AND document_id=?"
+        row = conn.execute(query, (user_id, document_id)).fetchone()
+    finally: conn.close()
+    if not row: raise KeyError("Generated document not found")
+    return {"id": row[0], "filename": row[1], "title": row[2], "content": bytes(row[3]), "content_type": row[4], "size_bytes": row[5], "created_at": row[6]}
+
 def create_terminal_approval(user_id: str, job_id: str, command: str, workspace: str) -> dict:
     allowed = {'pwd', 'python3 --version', 'uname -a', 'git status --short', 'git log -1 --oneline', 'git branch --show-current', 'ls -la', 'git diff --check', 'python -m py_compile app/main.py app/intent_router.py', './.venv/bin/python -m pytest -q tests/test_intent_router.py', './.venv/bin/python -m pytest -q tests/test_firecrawl_agent_integration.py'}
     if not user_id or len(user_id) > 200 or not re.fullmatch(r'[a-f0-9]{32}', job_id): raise ValueError('invalid approval identity')
@@ -927,5 +975,6 @@ def capabilities() -> dict:
         'persistent_memory': {'available': True, 'storage': 'postgres' if os.getenv('DATABASE_URL','').strip() else 'local_sqlite', 'durable_across_host_restarts': bool(os.getenv('DATABASE_URL','').strip()), 'warning': None if os.getenv('DATABASE_URL','').strip() else 'Local SQLite may not survive ephemeral-host restarts or replacements'},
         'task_orchestration': {'available': True, 'max_steps': 20, 'execution': 'explicit step tracking; no arbitrary code execution'},
         'document_handling': {'available': True, 'formats': ['txt','md','source code','json','csv','docx','pdf'], 'max_upload_bytes': 3000000, 'max_extracted_characters': 40000},
+        'pdf_generation': {'available': True, 'chat_agent_tool': 'mia_create_pdf', 'max_content_characters': 30000, 'max_pdf_bytes': 10000000, 'owner_scoped_download': True, 'storage': 'postgres' if os.getenv('DATABASE_URL','').strip() else 'local_sqlite', 'durable_across_host_restarts': bool(os.getenv('DATABASE_URL','').strip())},
         'coding_workflows': {'available': True, 'execution': 'analysis and repository reads only; no arbitrary shell execution'},
     }

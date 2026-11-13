@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 _EXPLICIT_AGENT_CUES = (
+    "create a pdf", "create pdf", "generate a pdf", "generate pdf", "make a pdf", "make pdf", "download as pdf", "export as pdf", "turn this into a pdf", "save this as a pdf", "create a downloadable report",
     "mcp", "supabase", "connected tools", "outside tools",
     "connected plugins", "connected integrations", "list my plugins",
     "which plugins", "what plugins", "which integrations are connected", "plugin inventory", "integration inventory",

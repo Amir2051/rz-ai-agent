@@ -34,14 +34,16 @@ def test_google_oauth_state_is_single_use_and_account_bound(app,monkeypatch):
     monkeypatch.setenv('GOOGLE_CLIENT_SECRET','client-secret')
     monkeypatch.setenv('GOOGLE_REDIRECT_URI','https://rz-ai.safenestt.com/v1/connectors/google/callback')
     app.app.dependency_overrides[c._user]=lambda:{'id':'alice','email':'alice@example.com'}
-    client=TestClient(app.app)
+    client=TestClient(app.app,base_url='https://testserver')
     response=client.get('/v1/connectors/google/connect')
     assert response.status_code==200
     params=parse_qs(urlparse(response.json()['authorization_url']).query)
     assert params['access_type']==['offline']
+    assert params['code_challenge_method']==['S256'] and params.get('code_challenge')
+    assert any(k.startswith('rz_oauth_pkce_') for k in client.cookies.keys())
     assert 'https://www.googleapis.com/auth/gmail.readonly' in params['scope'][0]
     state=params['state'][0]
-    monkeypatch.setattr(c,'_oauth_exchange',lambda provider,code:{'credentials':{'access_token':'test-token'},'external_id':'sub-1','label':'alice@example.com'})
+    monkeypatch.setattr(c,'_oauth_exchange',lambda provider,code,**kwargs:{'credentials':{'access_token':'test-token'},'external_id':'sub-1','label':'alice@example.com'})
     callback=client.get('/v1/connectors/google/callback',params={'code':'single-use-code','state':state},follow_redirects=False)
     assert callback.status_code==303 and 'google_connected' in callback.headers['location']
     assert c._read('alice','google')['label']=='alice@example.com'
@@ -217,3 +219,24 @@ def test_gmail_get_message_returns_complete_available_body_and_attachment_metada
     assert result['source']=='Gmail API messages.get(format=full)'
     assert calls and calls[0].endswith('/real-message-id')
 
+def test_github_uses_user_oauth_login_and_pkce(app,monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import connectors as c
+    monkeypatch.setenv('GITHUB_APP_CLIENT_ID','github-client')
+    monkeypatch.setenv('GITHUB_APP_CLIENT_SECRET','github-secret')
+    monkeypatch.setenv('GITHUB_APP_REDIRECT_URI','https://rz-ai.safenestt.com/v1/connectors/github/callback')
+    app.app.dependency_overrides[c._user]=lambda:{'id':'alice','email':'alice@example.com'}
+    client=TestClient(app.app,base_url='https://testserver')
+    response=client.get('/v1/connectors/github/connect')
+    assert response.status_code==200
+    auth=urlparse(response.json()['authorization_url'])
+    params=parse_qs(auth.query)
+    assert auth.netloc=='github.com' and auth.path=='/login/oauth/authorize'
+    assert params['client_id']==['github-client']
+    assert params['code_challenge_method']==['S256'] and params.get('code_challenge')
+    state=params['state'][0]
+    monkeypatch.setattr(c,'_oauth_exchange',lambda provider,code,**kwargs:{'credentials':{'access_token':'gh-token'},'external_id':'42','label':'@alice'})
+    callback=client.get('/v1/connectors/github/callback',params={'code':'github-code','state':state},follow_redirects=False)
+    assert callback.status_code==303 and 'github_connected' in callback.headers['location']
+    assert c._read('alice','github')['label']=='@alice'
+    app.app.dependency_overrides.clear()
