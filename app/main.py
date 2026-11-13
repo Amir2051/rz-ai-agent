@@ -1253,6 +1253,11 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
         agent_tools = agent_tools + plugin_manager.plugin_tools(owner_id)
     except Exception as exc:  # An unreachable plugin must never break ordinary chat.
         print("RZ_MCP_PLUGIN_SCHEMA_ERROR", {"error_type": type(exc).__name__}, flush=True)
+    try:
+        from app import connectors as app_connectors
+        agent_tools = agent_tools + app_connectors.tool_schemas(owner_id)
+    except Exception as exc:
+        print("RZ_APP_CONNECTOR_SCHEMA_ERROR", {"error_type": type(exc).__name__}, flush=True)
     if workspace_access.is_operator(owner_id) and mcp_client.configured_servers():
         try:
             agent_tools = agent_tools + mcp_client.agent_tool_schemas()
@@ -1294,19 +1299,28 @@ def _complete_with_mia_agent_tools(system, user_content, session_id, model, temp
                         raise ValueError("Unknown or malformed tool call")
                     args = json.loads(raw) if isinstance(raw, str) else raw
                     is_plugin = name.startswith("mcp_") and not name.startswith(mcp_client.TOOL_PREFIX)
+                    is_connector = name.startswith("appconn_")
                     is_mcp = name.startswith(mcp_client.TOOL_PREFIX)
-                    if is_mcp or is_plugin:
+                    if is_mcp or is_plugin or is_connector:
                         # The remote server validates against its own schema; we bound type and size.
                         if not isinstance(args, dict):
                             raise ValueError("Tool arguments must be a JSON object")
                     else:
                         _validate_mia_agent_tool_args(name, args)
                     cap_services.record_agent_run_event(owner_id, run_id, {"type": "tool_started", "tool": name, "call_id": call_id, "argument_keys": sorted(args.keys())})
-                    if is_plugin:
+                    if is_plugin or is_connector:
                         cap_services.record_agent_run_event(owner_id, run_id, {"type":"plugin_tool_started","tool":name,"call_id":call_id,"arguments":args})
                     tool_execution_started = True
-                    tool_result = plugin_manager.call_plugin_tool(owner_id,name,args) if is_plugin else (mcp_client.agent_call(name, args, owner_id) if is_mcp else _dispatch_mia_agent_tool(name, args, owner_id, session_id))
                     if is_plugin:
+                        tool_result = plugin_manager.call_plugin_tool(owner_id,name,args)
+                    elif is_connector:
+                        from app import connectors as app_connectors
+                        tool_result = app_connectors.execute_tool(owner_id,name,args)
+                    elif is_mcp:
+                        tool_result = mcp_client.agent_call(name, args, owner_id)
+                    else:
+                        tool_result = _dispatch_mia_agent_tool(name, args, owner_id, session_id)
+                    if is_plugin or is_connector:
                         cap_services.record_agent_run_event(owner_id, run_id, {"type":"plugin_tool_completed","tool":name,"call_id":call_id,"result":tool_result})
                     event_result = tool_result
                     if name == "mia_safenestt_investigate":
@@ -2569,6 +2583,9 @@ def tool_center_page():
 
 from app.social_marketing import router as social_marketing_router
 app.include_router(social_marketing_router)
+
+from app.connectors import router as app_connectors_router
+app.include_router(app_connectors_router)
 
 from app.slack_channel import router as slack_channel_router
 app.include_router(slack_channel_router)
