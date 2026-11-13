@@ -326,7 +326,16 @@ def _get(url: str, token: str, *, params=None, stripe=False, stripe_account=None
 
 
 def tool_schemas(user_id: str) -> list[dict]:
-    schemas = []
+    # Always expose a harmless inventory tool so MIA can explain which apps are
+    # connected, even when no provider-specific tools are available.
+    schemas = [{
+        "type": "function",
+        "function": {
+            "name": "appconn_list_connected_apps",
+            "description": "[Connected app inventory · read-only] List this account's connected integrations and the read-only tools available for each. Never returns credentials.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    }]
     specs = {
         "google": [
             ("gmail_search_messages", "Search Gmail messages using Gmail query syntax", {"query": {"type": "string", "maxLength": 500}, "limit": {"type": "integer", "minimum": 1, "maximum": 25}}, ["query"]),
@@ -347,6 +356,11 @@ def tool_schemas(user_id: str) -> list[dict]:
         try:
             _read(user_id, provider)
         except KeyError:
+            continue
+        except Exception as exc:
+            # One broken/expired connector must not suppress every other app's
+            # tools for this owner. The inventory tool reports reauthorization.
+            print("RZ_APP_CONNECTOR_UNAVAILABLE", {"provider": provider, "error_type": type(exc).__name__}, flush=True)
             continue
         for name, description, properties, required in items:
             schemas.append({"type": "function", "function": {"name": "appconn_" + name, "description": "[Connected app: " + provider.title() + " · read-only] " + description, "parameters": {"type": "object", "properties": properties, "required": required}}})
@@ -377,6 +391,43 @@ def _gmail_body(payload: dict) -> str:
 def execute_tool(user_id: str, name: str, args: dict) -> dict:
     if not isinstance(args, dict) or len(json.dumps(args)) > 12000:
         raise HTTPException(422, "Connector tool arguments must be a JSON object under 12 KB")
+    if name == "appconn_list_connected_apps":
+        conn, kind = _db()
+        try:
+            q = ("SELECT provider,label,connected_at FROM rz_app_connectors WHERE user_id=%s ORDER BY provider"
+                 if kind == "postgres" else
+                 "SELECT provider,label,connected_at FROM rz_app_connectors WHERE user_id=? ORDER BY provider")
+            rows = conn.execute(q, (user_id,)).fetchall()
+        finally:
+            conn.close()
+        tool_map = {
+            "google": ["appconn_gmail_search_messages", "appconn_gmail_get_message"],
+            "github": ["appconn_github_list_repositories", "appconn_github_list_issues", "appconn_github_list_pull_requests"],
+            "stripe": ["appconn_stripe_list_customers", "appconn_stripe_list_payments", "appconn_stripe_list_invoices"],
+        }
+        labels = {"google": "Gmail", "github": "GitHub", "stripe": "Stripe"}
+        integrations = []
+        for provider, label, connected_at in rows:
+            try:
+                _read(user_id, provider)
+                status = "connected"
+                available_tools = tool_map.get(provider, [])
+            except Exception:
+                status = "needs_reauthorization"
+                available_tools = []
+            integrations.append({
+                "provider": provider,
+                "name": labels.get(provider, provider.title()),
+                "account": label,
+                "status": status,
+                "available_read_only_tools": available_tools,
+                "connected_at": connected_at,
+            })
+        return {
+            "count": len(integrations),
+            "integrations": integrations,
+            "note": "This inventory is scoped to the authenticated account. It contains connection status and tool names only; no credentials or message/payment contents.",
+        }
     if name.startswith("appconn_gmail_"):
         token = _token(user_id, "google")
         if name == "appconn_gmail_search_messages":
