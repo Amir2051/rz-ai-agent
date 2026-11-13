@@ -74,6 +74,9 @@ def test_gmail_read_requests_use_agent_loop():
     assert should_use_agent_tools("Search my inbox for the latest invoice")
     assert should_use_agent_tools("Find emails from my accountant")
     assert should_use_agent_tools("Read my email about the appointment")
+    assert should_use_agent_tools("Read the full email")
+    assert should_use_agent_tools("Open this email and show me the body")
+    assert should_use_agent_tools("Read the entire email")
 
 
 def test_email_composition_alone_does_not_force_gmail_tools():
