@@ -78,3 +78,10 @@ def test_gmail_read_requests_use_agent_loop():
 
 def test_email_composition_alone_does_not_force_gmail_tools():
     assert not should_use_agent_tools("Write an email to my landlord asking about the lease")
+
+
+
+def test_connected_plugin_inventory_routes_through_agent_tools():
+    assert should_use_agent_tools("List my connected plugins")
+    assert should_use_agent_tools("Which integrations are connected?")
+    assert should_use_agent_tools("Show connected apps and their available tools")
