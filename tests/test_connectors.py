@@ -161,8 +161,59 @@ def test_gmail_search_returns_only_real_ids_and_sorts_by_gmail_internal_date(app
     result=c.execute_tool('alice','appconn_gmail_search_messages',{'query':'in:inbox from:google','limit':10})
     assert [m['id'] for m in result['messages']]==['18f-real-newest','19f-real-middle','17f-real-oldest']
     assert [m['subject'] for m in result['messages']]==['Newest','Middle','Oldest']
-    assert result['sort']=='internalDate_desc'
+    assert result['sort']=='internalDate_desc_within_page'
     assert result['timestamps_verified_by']=='Gmail API messages.get'
     assert result['returnedCount']==3
     assert len(calls)==4
     assert all(m['id'] in {'18f-real-newest','17f-real-oldest','19f-real-middle'} for m in result['messages'])
+
+def test_gmail_search_supports_pagination_and_reports_incomplete_scope(app, monkeypatch):
+    from app import connectors as c
+    c._save('alice','google','sub-1','alice@example.com',{'access_token':'gmail-token'})
+    calls=[]
+    def fake_get(url, token, *, params=None, **kwargs):
+        calls.append((url, params))
+        if url.endswith('/messages'):
+            return {'resultSizeEstimate': 60, 'messages': [], 'nextPageToken': 'next-real-page-token'}
+        raise AssertionError('No message metadata should be fetched for an empty page')
+    monkeypatch.setattr(c,'_get',fake_get)
+    result=c.execute_tool('alice','appconn_gmail_search_messages',{'query':'in:inbox','limit':50,'page_token':'previous-page-token'})
+    assert calls[0][1]['pageToken']=='previous-page-token'
+    assert calls[0][1]['maxResults']==50
+    assert result['pageTokenUsed'] is True
+    assert result['hasMoreResults'] is True
+    assert result['nextPageToken']=='next-real-page-token'
+    assert result['sort']=='internalDate_desc_within_page'
+
+
+def test_gmail_get_message_returns_complete_available_body_and_attachment_metadata(app, monkeypatch):
+    import base64
+    from app import connectors as c
+    c._save('alice','google','sub-1','alice@example.com',{'access_token':'gmail-token'})
+    body='Full message body with the actual details.'
+    encoded=base64.urlsafe_b64encode(body.encode()).decode().rstrip('=')
+    payload={
+        'id':'real-message-id','threadId':'real-thread-id','internalDate':'1794500000000',
+        'snippet':'Actual Gmail snippet','labelIds':['INBOX'],
+        'payload':{'mimeType':'multipart/mixed','headers':[
+            {'name':'From','value':'sender@example.com'},{'name':'To','value':'alice@example.com'},
+            {'name':'Cc','value':'copy@example.com'},{'name':'Subject','value':'Actual subject'},
+            {'name':'Date','value':'Thu, 12 Nov 2026 12:00:00 -0500'}
+        ],'parts':[
+            {'mimeType':'text/plain','body':{'data':encoded}},
+            {'mimeType':'application/pdf','filename':'invoice.pdf','body':{'attachmentId':'attachment-123','size':2048}}
+        ]}
+    }
+    calls=[]
+    monkeypatch.setattr(c,'_get',lambda url,token,**kwargs:calls.append(url) or payload)
+    result=c.execute_tool('alice','appconn_gmail_get_message',{'message_id':'real-message-id'})
+    assert result['id']=='real-message-id'
+    assert result['subject']=='Actual subject'
+    assert result['body']==body
+    assert result['body_format']=='text/plain'
+    assert result['body_truncated'] is False
+    assert result['attachments'][0]['filename']=='invoice.pdf'
+    assert result['attachments'][0]['content_retrieved'] is False
+    assert result['source']=='Gmail API messages.get(format=full)'
+    assert calls and calls[0].endswith('/real-message-id')
+

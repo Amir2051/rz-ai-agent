@@ -1186,3 +1186,18 @@ def test_ollama_fallback_fails_closed_for_mcp_tool_requests(app, monkeypatch):
         app._complete_message("system", "Use MCP plugin to execute echo hello", "local:mcp-fail-closed", None, None, 100)
     assert exc.value.status_code == 503
     assert "no plugin or agent tools were executed" in exc.value.detail
+
+def test_extract_reply_hides_internal_thinking_and_uses_real_newlines(app):
+    result = {"choices": [{"message": {"content": "<thinking>private chain of thought</thinking>\n## Verified result\nActual Gmail data"}}]}
+    reply = app._extract_reply(result)
+    assert "thinking" not in reply.lower()
+    assert "private chain of thought" not in reply
+    assert "## Verified result\nActual Gmail data" in reply
+
+
+def test_extract_reply_joins_multimodal_text_blocks_with_newlines(app):
+    result = {"choices": [{"message": {"content": [
+        {"type": "text", "text": "First paragraph"},
+        {"type": "text", "text": "Second paragraph"},
+    ]}}]}
+    assert app._extract_reply(result) == "First paragraph\nSecond paragraph"
