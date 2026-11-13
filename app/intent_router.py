@@ -16,7 +16,9 @@ _EXPLICIT_AGENT_CUES = (
     # Connected-app read requests must enter the tool loop; availability is still
     # enforced by owner-scoped connector schemas and execution-time token checks.
     "gmail", "google mail", "my inbox", "search my email", "search emails",
-    "read my email", "read my emails", "find emails", "find an email",
+    "read my email", "read my emails", "read the email", "read this email",
+    "read the full email", "read the entire email", "show me the full email",
+    "open this email", "email body", "full email body", "find emails", "find an email",
     "look for emails", "check my inbox", "check my email", "emails from",
     "email from",
     "act as an agent", "agent mode", "use your tools", "use tools to",
