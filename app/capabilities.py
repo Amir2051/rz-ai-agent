@@ -634,77 +634,7 @@ def _validate_conversation_owner(user_id: str, session_id: str) -> None:
         raise ValueError('conversation does not belong to this account')
 
 
-def save_conversation(user_id: str, session_id: str, history: list, model: str) -> dict:
-    """Upsert bounded chat history under the authenticated account and session."""
-    _validate_conversation_owner(user_id, session_id)
-    if not isinstance(history, list) or len(history) > 24:
-        raise ValueError('conversation history must contain at most 24 messages')
-    safe_history = []
-    for item in history:
-        if not isinstance(item, dict) or item.get('role') not in {'user', 'assistant'} or not isinstance(item.get('content'), str):
-            raise ValueError('conversation contains an invalid message')
-        if len(item['content']) > 32000:
-            raise ValueError('conversation message exceeds 32 KB')
-        safe_history.append({'role': item['role'], 'content': item['content']})
-    serialized = json.dumps(safe_history, ensure_ascii=False, separators=(',', ':'))
-    if len(serialized.encode('utf-8')) > 300_000:
-        raise ValueError('conversation history exceeds the 300 KB storage limit')
-    if not isinstance(model, str) or not model.strip() or len(model) > 200:
-        raise ValueError('invalid conversation model')
-    conn, kind = _db(); now = time.time()
-    try:
-        if kind == 'postgres':
-            query = """INSERT INTO rz_agent_conversations(user_id,session_id,history,model,created_at,updated_at)
-                VALUES(%s,%s,%s::jsonb,%s,%s,%s) ON CONFLICT(user_id,session_id) DO UPDATE SET
-                history=EXCLUDED.history,model=EXCLUDED.model,updated_at=EXCLUDED.updated_at"""
-        else:
-            query = """INSERT INTO rz_agent_conversations(user_id,session_id,history,model,created_at,updated_at)
-                VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id) DO UPDATE SET
-                history=excluded.history,model=excluded.model,updated_at=excluded.updated_at"""
-        conn.execute(query, (user_id, session_id, serialized, model.strip(), now, now)); conn.commit()
-    finally: conn.close()
-    return {'session_id': session_id, 'history_length': len(safe_history), 'updated_at': now}
 
-
-def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 3600) -> dict | None:
-    _validate_conversation_owner(user_id, session_id)
-    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 60 <= ttl_seconds <= 604800:
-        raise ValueError('ttl_seconds must be from 60 to 604800')
-    conn, kind = _db()
-    try:
-        query = ('SELECT history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=%s AND session_id=%s AND updated_at >= %s' if kind == 'postgres' else
-                 'SELECT history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=? AND session_id=? AND updated_at >= ?')
-        row = conn.execute(query, (user_id, session_id, time.time() - ttl_seconds)).fetchone()
-    finally: conn.close()
-    if not row: return None
-    history = row[0] if isinstance(row[0], list) else json.loads(row[0])
-    return {'session_id': session_id, 'history': history, 'model': row[1], 'created_at': row[2], 'updated_at': row[3]}
-
-
-def list_conversations(user_id: str, ttl_seconds: int = 3600, limit: int = 100) -> dict:
-    if not isinstance(user_id, str) or not user_id or len(user_id) > 200: raise ValueError('invalid user id')
-    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 60 <= ttl_seconds <= 604800: raise ValueError('ttl_seconds must be from 60 to 604800')
-    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200: raise ValueError('limit must be from 1 to 200')
-    conn, kind = _db()
-    try:
-        query = ('SELECT session_id,updated_at,model FROM rz_agent_conversations WHERE user_id=%s AND updated_at >= %s ORDER BY updated_at DESC LIMIT %s' if kind == 'postgres' else
-                 'SELECT session_id,updated_at,model FROM rz_agent_conversations WHERE user_id=? AND updated_at >= ? ORDER BY updated_at DESC LIMIT ?')
-        rows = conn.execute(query, (user_id, time.time() - ttl_seconds, limit)).fetchall()
-    finally: conn.close()
-    sessions = [{'session_id': r[0], 'updated_at': r[1], 'model': r[2]} for r in rows]
-    return {'sessions': sessions, 'count': len(sessions)}
-
-
-def delete_conversation(user_id: str, session_id: str) -> bool:
-    _validate_conversation_owner(user_id, session_id)
-    conn, kind = _db()
-    try:
-        query = 'DELETE FROM rz_agent_conversations WHERE user_id=%s AND session_id=%s' if kind == 'postgres' else 'DELETE FROM rz_agent_conversations WHERE user_id=? AND session_id=?'
-        cur = conn.execute(query, (user_id, session_id)); conn.commit(); return cur.rowcount > 0
-    finally: conn.close()
-
-
-def create_agent_run(user_id: str, session_id: str, user_request: str) -> dict:
     """Create a durable, account-scoped execution ledger for a bounded MIA run."""
     if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
         raise ValueError('invalid user id')

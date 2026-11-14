@@ -2126,7 +2126,7 @@ def read_conversation(session_id: str, current_user: dict = Depends(require_app_
     if not session_id.startswith(f"{user_id}:"):
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:
-        conversation = cap_services.get_conversation(user_id, session_id, SESSION_TTL_SECONDS)
+        conversation = cap_services.get_conversation(user_id, session_id)
     except Exception as exc:
         print("RZ_CONVERSATION_RESTORE_WARNING", {"error_type": type(exc).__name__}, flush=True)
         raise HTTPException(status_code=503, detail="Conversation history is temporarily unavailable") from None
