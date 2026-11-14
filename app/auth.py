@@ -4,7 +4,7 @@ import hashlib, os, secrets, time
 from datetime import datetime, timedelta, timezone
 import psycopg
 from argon2 import PasswordHasher
-from argon2 import VerificationError, VerifyMismatchError
+from argon2.exceptions import VerificationError, VerifyMismatchError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 
