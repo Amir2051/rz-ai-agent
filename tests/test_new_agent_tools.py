@@ -32,7 +32,7 @@ def test_new_tools_are_registered_and_schema_enforced(m):
     with pytest.raises(ValueError):
         m._validate_mia_agent_tool_args("mia_research_brief", {"query": "x", "extra": 1})
     with pytest.raises(ValueError):
-        m._validate_mia_agent_tool_args("mia_research_brief", {"query": "x", "max_sources": 9})
+        m._validate_mia_agent_tool_args("mia_research_brief", {"query": "x", "max_sources": 21})
 
 
 def test_crypto_trace_validates_and_routes(m, monkeypatch):

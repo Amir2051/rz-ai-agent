@@ -1043,7 +1043,10 @@ MIA_AGENT_TOOLS = [
     {"type":"function","function":{"name":"mia_safenestt_investigate","description":"Run MIA-RZ's SafeNestT-style six-phase investigation pipeline on user-provided indicators. Performs only allowlisted public-source OSINT, DNS/reverse DNS, threat-intelligence, breach/exposure, domain/IP, and supported crypto lookups. Optional provider keys are read from server environment and never returned. Findings are leads requiring human review, not proof of wrongdoing. Use only for a legitimate, authorized investigation.","parameters":{"type":"object","properties":{"indicators":{"type":"object","properties":{"email":{"type":"string","maxLength":500},"domain":{"type":"string","maxLength":500},"ip_address":{"type":"string","maxLength":500},"username":{"type":"string","maxLength":500},"phone":{"type":"string","maxLength":500},"url":{"type":"string","maxLength":500},"wallet_address":{"type":"string","maxLength":500},"transaction_hash":{"type":"string","maxLength":500}},"additionalProperties":False},"include_optional_providers":{"type":"boolean"}},"required":["indicators"],"additionalProperties":False}}},
    {"type":"function","function":{"name":"mia_osint_lookup","description":"Run one targeted SafeNestT investigation lookup instead of the full six-phase pipeline. Supported tools: dns_lookup, reverse_dns, osint_profile, reputation_score, dehashed_search, darkweb_paste, shodan_domain, shodan_host, virustotal, hibp_email, hunter_email, hunter_domain, firecrawl_scrape, crypto_trace. The selected tool must support the supplied indicator_type. Provider credentials are never returned. Use only for legitimate, authorized investigations; findings are leads, not proof.","parameters":{"type":"object","properties":{"tool_name":{"type":"string","enum":["dns_lookup","reverse_dns","osint_profile","reputation_score","dehashed_search","darkweb_paste","shodan_domain","shodan_host","virustotal","hibp_email","hunter_email","hunter_domain","firecrawl_scrape","crypto_trace"]},"indicator_type":{"type":"string","enum":["email","domain","ip_address","username","phone","url","wallet_address","transaction_hash"]},"value":{"type":"string","minLength":1,"maxLength":500}},"required":["tool_name","indicator_type","value"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_investigation_capabilities","description":"Report which SafeNestT-style investigation tools exist and which external providers are actually configured on this deployment. Returns provider names and configured booleans only; never returns secrets. Use before promising a provider-backed lookup.","parameters":{"type":"object","properties":{},"additionalProperties":False}}},
-    {"type":"function","function":{"name":"mia_request_local_command","description":"Request one bounded local development command on the operator's Kali machine: inspect repository state, run Python syntax checks, validate git diffs, or run the allowlisted targeted pytest suites. Every exact command requires approval in the authenticated MIA UI. No arbitrary shell, installs, file writes, or destructive commands.","parameters":LOCAL_TERMINAL_TOOL["function"]["parameters"]}}
+    {"type":"function","function":{"name":"mia_request_local_command","description":"Request one bounded local development command on the operator's Kali machine: inspect repository state, run Python syntax checks, validate git diffs, or run the allowlisted targeted pytest suites. Every exact command requires approval in the authenticated MIA UI. No arbitrary shell, installs, file writes, or destructive commands.","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":500},"workspace":{"type":"string","minLength":1,"maxLength":200}},"required":["command","workspace"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"mia_generate_image","description":"Generate an AI image from a text prompt. Use when the user asks for image generation, drawing, or visual content. Results are AI-generated content, not guaranteed accurate representations.","parameters":{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":2000}},"required":["prompt"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"mia_crypto_trace","description":"Trace a cryptocurrency wallet address or transaction hash on public blockchains. Uses the configured crypto tracing provider. Results are unverified on-chain data only; do not treat as financial advice.","parameters":{"type":"object","properties":{"wallet_address":{"type":"string","maxLength":500},"transaction_hash":{"type":"string","maxLength":500}},"required":["wallet_address"],"additionalProperties":False}}},
+    {"type":"function","function":{"name":"mia_research_brief","description":"Generate a structured research brief on a topic using multiple public web sources. Returns a concise brief with key findings, sources, and evidence quality assessment.","parameters":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":2000},"max_sources":{"type":"integer","minimum":1,"maximum":20,"default":5}},"required":["query"],"additionalProperties":False}}}
 ]
 
 # Public-web search and extraction through the configured Firecrawl API.
@@ -1255,6 +1258,32 @@ def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: s
         if set(args) != {"command", "workspace"}:
             raise ValueError("Tool arguments must contain only command and workspace")
         return _request_local_terminal_command(args["command"], args["workspace"], owner_id)
+    if name == "mia_generate_image":
+        result = _generate_image_from_payload(args.get("prompt", ""))
+        if "b64_json" in result.get("image", {}):
+            del result["image"]["b64_json"]
+        result["image"]["note"] = "Image generated; base64 preview is not exported to the chat context."
+        return result
+    if name == "mia_crypto_trace":
+        from app.investigation.engine import run_tool, validate_indicator
+        wallet = args.get("wallet_address", "")
+        tx_hash = args.get("transaction_hash", "")
+        if not wallet and not tx_hash:
+            raise ValueError("mia_crypto_trace requires wallet_address or transaction_hash")
+        if wallet and tx_hash:
+            raise ValueError("mia_crypto_trace accepts only one of wallet_address or transaction_hash")
+        indicator_type, value = ("wallet_address", wallet) if wallet else ("transaction_hash", tx_hash)
+        normalized = validate_indicator(indicator_type, value)
+        result = run_tool("crypto_trace", indicator_type, normalized)
+        return {"status": "success", "result": result}
+    if name == "mia_research_brief":
+        query = args.get("query", "").strip()
+        if not query:
+            raise ValueError("query must be a non-empty string")
+        results = cap_services.web_research(query, args.get("max_sources", 5))
+        if not results.get("results"):
+            return {"status": "error", "error": "No results found", "completed": False}
+        return {"status": "success", "query": query, "source": results.get("source"), "sources": [{"id": i+1, "title": r["title"], "url": r["url"]} for i, r in enumerate(results.get("results", [])[:args.get("max_sources", 5)])], "untrusted": True}
     raise ValueError("Tool is not allowlisted")
 
 

@@ -518,11 +518,31 @@ def save_conversation(user_id: str, session_id: str, history: list[dict], model:
         conn.close()
     return {"session_id": session_id, "title": title, "model": model, "updated_at": now, "history_length": len(safe_history)}
 
-def get_conversation(user_id: str, session_id: str) -> dict | None:
+def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 0) -> dict | None:
+    """Get a conversation by user and session, optionally filtered by TTL.
+
+    If ttl_seconds > 0, only returns the conversation if updated_at >= now - ttl_seconds.
+    """
+    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 0 <= ttl_seconds <= 86400:
+        raise ValueError('ttl_seconds must be from 0 to 86400')
     conn, kind = _db()
     try:
-        q = "SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=%s AND session_id=%s" if kind == "postgres" else "SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=? AND session_id=?"
-        row = conn.execute(q, (str(user_id), session_id)).fetchone()
+        if ttl_seconds > 0:
+            if kind == "postgres":
+                q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
+                     "WHERE user_id=%s AND session_id=%s AND updated_at >= now() - %s * interval '1 second'")
+                params = (str(user_id), session_id, ttl_seconds)
+            else:
+                q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
+                     "WHERE user_id=? AND session_id=? AND updated_at >= (? * 1) || ?")
+                params = (str(user_id), session_id, ttl_seconds)
+        else:
+            q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
+                 "WHERE user_id=%s AND session_id=%s" if kind == "postgres"
+                 else "SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
+                      "WHERE user_id=? AND session_id=?")
+            params = (str(user_id), session_id)
+        row = conn.execute(q, params).fetchone()
     finally:
         conn.close()
     if not row:
@@ -530,15 +550,38 @@ def get_conversation(user_id: str, session_id: str) -> dict | None:
     history = row[1] if isinstance(row[1], list) else json.loads(row[1])
     return {"session_id": session_id, "title": row[0], "history": history, "model": row[2], "created_at": row[3], "updated_at": row[4]}
 
-def list_conversations(user_id: str, limit: int = 30) -> dict:
-    limit = max(1, min(int(limit), 100))
+
+def list_conversations(user_id: str, limit: int = 30, ttl_seconds: int = 0) -> dict:
+    """List conversations for a user, optionally filtered by TTL.
+
+    If ttl_seconds > 0, only returns conversations with updated_at >= now - ttl_seconds.
+    """
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ValueError('limit must be from 1 to 100')
+    if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 0 <= ttl_seconds <= 86400:
+        raise ValueError('ttl_seconds must be from 0 to 86400')
     conn, kind = _db()
     try:
-        q = "SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=%s ORDER BY updated_at DESC LIMIT %s" if kind == "postgres" else "SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations WHERE user_id=? ORDER BY updated_at DESC LIMIT ?"
-        rows = conn.execute(q, (str(user_id), limit)).fetchall()
+        if ttl_seconds > 0:
+            if kind == "postgres":
+                q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
+                     "WHERE user_id=%s AND updated_at >= now() - %s * interval '1 second' ORDER BY updated_at DESC LIMIT %s")
+                params = (str(user_id), ttl_seconds, limit)
+            else:
+                q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
+                     "WHERE user_id=? AND updated_at >= (? * 1) || ? ORDER BY updated_at DESC LIMIT ?")
+                params = (str(user_id), ttl_seconds, limit)
+        else:
+            q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
+                 "WHERE user_id=%s ORDER BY updated_at DESC LIMIT %s" if kind == "postgres"
+                 else "SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
+                      "WHERE user_id=? ORDER BY updated_at DESC LIMIT ?")
+            params = (str(user_id), limit)
+        rows = conn.execute(q, params).fetchall()
     finally:
         conn.close()
     return {"conversations": [{"session_id": r[0], "title": r[1], "model": r[2], "created_at": r[3], "updated_at": r[4]} for r in rows], "count": len(rows)}
+
 
 def delete_conversation(user_id: str, session_id: str) -> bool:
     conn, kind = _db()
@@ -652,6 +695,35 @@ def _validate_conversation_owner(user_id: str, session_id: str) -> None:
         conn.commit()
     finally: conn.close()
     return {'id': run_id, 'status': 'running', 'created_at': now, 'events': []}
+
+
+def create_agent_run(user_id: str, session_id: str, user_content: str) -> dict:
+    """Create a new agent run record under the owning account.
+
+    Returns {'id': run_id, 'status': 'running', ...}.
+    """
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
+        raise ValueError('invalid user id')
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
+        raise ValueError('invalid session id')
+    if not isinstance(user_content, str) or not user_content.strip():
+        raise ValueError('user_content must be a non-empty string')
+    if len(user_content) > 32000:
+        raise ValueError('request must be 1–32000 characters')
+    run_id = uuid.uuid4().hex
+    now = time.time()
+    conn, kind = _db()
+    try:
+        insert = ('INSERT INTO rz_agent_runs(run_id,user_id,session_id,status,user_request,events,created_at,updated_at) '
+                  'VALUES(%s,%s,%s,%s,%s,%s,%s,%s)' if kind == 'postgres'
+                  else 'INSERT INTO rz_agent_runs(run_id,user_id,session_id,status,user_request,events,created_at,updated_at) '
+                      'VALUES(?,?,?,?,?,?,?,?)')
+
+        conn.execute(insert, (run_id, user_id, session_id, 'running', user_content[:32000], '[]', now, now))
+        conn.commit()
+    finally:
+        conn.close()
+    return {'id': run_id, 'status': 'running', 'request': user_content[:32000]}
 
 
 def record_agent_run_event(user_id: str, run_id: str, event: dict) -> dict:
