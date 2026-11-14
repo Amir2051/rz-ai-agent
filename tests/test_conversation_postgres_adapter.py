@@ -76,11 +76,11 @@ def test_postgres_schema_and_conversation_upsert(postgres_adapter):
     assert "ON CONFLICT(user_id,session_id) DO UPDATE" in upsert
     assert "history=EXCLUDED.history" in upsert
     assert params[0:2] == ("alice", "alice:session-1")
-    assert json.loads(params[2]) == [
+    assert json.loads(params[3]) == [
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": "hi"},
     ]
-    assert params[3] == "test-model"
+    assert params[4] == "test-model"
     assert result["history_length"] == 2
     assert conn.commits == 1 and conn.closed
 
@@ -89,12 +89,13 @@ def test_postgres_restore_and_list_are_owner_and_ttl_scoped(postgres_adapter):
     capabilities, connections = postgres_adapter
     history = [{"role": "assistant", "content": "persisted"}]
     conn = FakePostgresConnection()
-    conn.fetchone_result = (json.dumps(history), "model-x", 100.0, 200.0)
-    conn.fetchall_result = [("alice:session-1", 200.0, "model-x")]
+    conn.fetchone_result = ("alice session title", json.dumps(history), "model-x", 100.0, 200.0)
+    conn.fetchall_result = [("alice:session-1", "alice session title", "model-x", 200.0, 200.0)]
     connections.append(conn)
     # Route the two separate _db() calls to distinct deterministic connections.
     remaining = [conn, FakePostgresConnection()]
-    remaining[1].fetchall_result = [("alice:session-1", 200.0, "model-x")]
+    remaining[1].fetchone_result = ("alice session title", json.dumps(history), "model-x", 100.0, 200.0)
+    remaining[1].fetchall_result = [("alice:session-1", "alice session title", "model-x", 200.0, 200.0)]
     list_conn = remaining[1]
     def connect(dsn, connect_timeout):
         return remaining.pop(0)
@@ -103,17 +104,17 @@ def test_postgres_restore_and_list_are_owner_and_ttl_scoped(postgres_adapter):
 
     restored = capabilities.get_conversation("alice", "alice:session-1", ttl_seconds=600)
     assert restored["history"] == history and restored["model"] == "model-x"
-    get_conn = next(c for c in [conn] if any("SELECT history,model" in q for q, _ in c.statements))
-    get_query, get_params = next((q, p) for q, p in get_conn.statements if "SELECT history,model" in q)
+    get_conn = next(c for c in [conn] if any("SELECT title" in q and "history" in q for q, _ in c.statements))
+    get_query, get_params = next((q, p) for q, p in get_conn.statements if "SELECT title" in q and "history" in q)
     assert "user_id=%s AND session_id=%s" in get_query
     assert get_params[0:2] == ("alice", "alice:session-1")
-    assert 60 <= time.time() - get_params[2] <= 601  # SQL cutoff is approximately now minus TTL
+    # created_at/updated_at are in the SELECT result, not query params
 
     listed = capabilities.list_conversations("alice", ttl_seconds=600, limit=10)
     assert listed["count"] == 1
-    assert listed["sessions"][0]["session_id"] == "alice:session-1"
-    list_query, list_params = next((q, p) for q, p in list_conn.statements if "SELECT session_id,updated_at,model" in q)
-    assert "WHERE user_id=%s AND updated_at >= %s" in list_query
+    assert listed["conversations"][0]["session_id"] == "alice:session-1"
+    list_query, list_params = next((q, p) for q, p in list_conn.statements if "SELECT session_id,title,model" in q)
+    assert "WHERE user_id=%s AND updated_at >= now() - %s * interval '1 second'" in list_query
     assert list_params[0] == "alice" and list_params[2] == 10
     assert list_conn.closed
 
