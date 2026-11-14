@@ -498,12 +498,20 @@ def _db():
 def save_conversation(user_id: str, session_id: str, history: list[dict], model: str) -> dict:
     """Persist a bounded conversation for its authenticated owner."""
     if not user_id or not session_id or not session_id.startswith(str(user_id) + ":"):
-        raise ValueError("conversation owner does not match session")
-    safe_history = [
-        {"role": item.get("role"), "content": str(item.get("content", ""))[:12000]}
-        for item in history[-24:]
-        if isinstance(item, dict) and item.get("role") in {"user", "assistant"} and item.get("content") is not None
-    ]
+        raise ValueError("conversation does not belong to this account")
+    if len(history) > 24:
+        raise ValueError("24 messages")
+    safe_history = []
+    for item in history:
+        if not isinstance(item, dict):
+            raise ValueError("invalid message")
+        role = item.get("role")
+        content = item.get("content")
+        if role not in {"user", "assistant"}:
+            raise ValueError("invalid message")
+        if content is None or not isinstance(content, str):
+            raise ValueError("invalid message")
+        safe_history.append({"role": role, "content": str(content)[:12000]})
     first_user = next((item["content"].strip() for item in safe_history if item["role"] == "user" and item["content"].strip()), "New conversation")
     title = first_user[:90] or "New conversation"
     now = time.time()
@@ -525,6 +533,7 @@ def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 0) -> dic
     """
     if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 0 <= ttl_seconds <= 86400:
         raise ValueError('ttl_seconds must be from 0 to 86400')
+    _validate_conversation_owner(user_id, session_id)
     conn, kind = _db()
     try:
         if ttl_seconds > 0:
@@ -534,7 +543,7 @@ def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 0) -> dic
                 params = (str(user_id), session_id, ttl_seconds)
             else:
                 q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
-                     "WHERE user_id=? AND session_id=? AND updated_at >= (? * 1) || ?")
+                     "WHERE user_id=? AND session_id=? AND updated_at >= (strftime('%s', 'now') - ?)")
                 params = (str(user_id), session_id, ttl_seconds)
         else:
             q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
@@ -569,7 +578,7 @@ def list_conversations(user_id: str, limit: int = 30, ttl_seconds: int = 0) -> d
                 params = (str(user_id), ttl_seconds, limit)
             else:
                 q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
-                     "WHERE user_id=? AND updated_at >= (? * 1) || ? ORDER BY updated_at DESC LIMIT ?")
+                     "WHERE user_id=? AND updated_at >= (strftime('%s', 'now') - ?) ORDER BY updated_at DESC LIMIT ?")
                 params = (str(user_id), ttl_seconds, limit)
         else:
             q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
@@ -580,7 +589,9 @@ def list_conversations(user_id: str, limit: int = 30, ttl_seconds: int = 0) -> d
         rows = conn.execute(q, params).fetchall()
     finally:
         conn.close()
-    return {"conversations": [{"session_id": r[0], "title": r[1], "model": r[2], "created_at": r[3], "updated_at": r[4]} for r in rows], "count": len(rows)}
+    return {"conversations": [{"session_id": r[0], "title": r[1], "model": r[2], "created_at": r[3], "updated_at": r[4]} for r in rows],
+            "sessions": [r[0] for r in rows],
+            "count": len(rows)}
 
 
 def delete_conversation(user_id: str, session_id: str) -> bool:
@@ -677,25 +688,40 @@ def _validate_conversation_owner(user_id: str, session_id: str) -> None:
         raise ValueError('conversation does not belong to this account')
 
 
-
-    """Create a durable, account-scoped execution ledger for a bounded MIA run."""
+def _validate_conversation_owner(user_id: str, session_id: str) -> None:
     if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
         raise ValueError('invalid user id')
     if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
         raise ValueError('invalid session id')
-    if not isinstance(user_request, str) or not user_request.strip() or len(user_request) > 32000:
-        raise ValueError('request must contain 1–32000 characters')
+    if not session_id.startswith(user_id + ':'):
+        raise ValueError('conversation does not belong to this account')
+
+
+def create_agent_run(user_id: str, session_id: str, user_content: str) -> dict:
+    """Create a new agent run record under the owning account.
+
+    Returns {'id': run_id, 'status': 'running', ...}.
+    """
+    if not isinstance(user_id, str) or not user_id or len(user_id) > 200:
+        raise ValueError('invalid user id')
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 300:
+        raise ValueError('invalid session id')
+    if not isinstance(user_content, str) or not user_content.strip() or len(user_content) > 32000:
+        raise ValueError('user_content must be a non-empty string of 1–32000 characters')
     run_id, now = uuid.uuid4().hex, time.time()
     conn, kind = _db()
     try:
         query = ('INSERT INTO rz_agent_runs(user_id,run_id,session_id,status,user_request,events,created_at,updated_at) '
-                 'VALUES(%s,%s,%s,%s,%s,%s::jsonb,%s,%s)' if kind == 'postgres' else
-                 'INSERT INTO rz_agent_runs(user_id,run_id,session_id,status,user_request,events,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
-        conn.execute(query, (user_id, run_id, session_id, 'running', user_request.strip(), json.dumps([]), now, now))
+                 'VALUES(%s,%s,%s,%s,%s,%s::jsonb,%s,%s)' if kind == 'postgres'
+                 else 'INSERT INTO rz_agent_runs(user_id,run_id,session_id,status,user_request,events,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+
+        if kind == 'postgres':
+            conn.execute(query, (run_id, user_id, session_id, 'running', user_content[:32000], '[]', now, now))
+        else:
+            conn.execute(query, (run_id, user_id, session_id, 'running', user_content[:32000], '[]', now, now))
         conn.commit()
     finally: conn.close()
-    return {'id': run_id, 'status': 'running', 'created_at': now, 'events': []}
-
+    return {'id': run_id, 'status': 'running', 'request': user_content[:32000]}
 
 def create_agent_run(user_id: str, session_id: str, user_content: str) -> dict:
     """Create a new agent run record under the owning account.

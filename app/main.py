@@ -2145,7 +2145,8 @@ def reset_conversation(session_id: str, current_user: dict = Depends(require_app
 def list_conversations(current_user: dict = Depends(require_app_user)):
     owner_id = str(current_user["id"])
     try:
-        stored = cap_services.list_conversations(owner_id, 50)
+        # Apply SESSION_TTL_SECONDS as the TTL filter for saved conversations
+        stored = cap_services.list_conversations(owner_id, 50, ttl_seconds=SESSION_TTL_SECONDS)
     except Exception as exc:
         print("RZ_CONVERSATION_LIST_ERROR", {"error_type": type(exc).__name__}, flush=True)
         raise HTTPException(status_code=503, detail="Saved conversation history is temporarily unavailable") from None
@@ -2166,7 +2167,7 @@ def read_conversation(session_id: str, current_user: dict = Depends(require_app_
     if not session_id.startswith(f"{user_id}:"):
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:
-        conversation = cap_services.get_conversation(user_id, session_id)
+        conversation = cap_services.get_conversation(user_id, session_id, ttl_seconds=SESSION_TTL_SECONDS)
     except Exception as exc:
         print("RZ_CONVERSATION_RESTORE_WARNING", {"error_type": type(exc).__name__}, flush=True)
         raise HTTPException(status_code=503, detail="Conversation history is temporarily unavailable") from None

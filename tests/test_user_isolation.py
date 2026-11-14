@@ -110,7 +110,7 @@ def test_saved_conversation_can_be_restored_only_by_its_owner(app, accounts):
     assert restored.json()["conversation"]["model"] == "test-model"
     listing = alice.get("/v1/conversations").json()
     assert session_id in listing["sessions"]
-    assert any(item["session_id"] == session_id and item["model"] == "test-model" for item in listing["items"])
+    assert any(item["session_id"] == session_id and item["model"] == "test-model" for item in listing["conversations"])
     home = alice.get("/")
     assert home.status_code == 200
     assert 'id="conversationHistory"' in home.text

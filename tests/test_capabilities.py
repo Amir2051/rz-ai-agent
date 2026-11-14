@@ -447,7 +447,7 @@ def test_conversation_store_round_trip_is_durable_and_owner_scoped(app):
     assert restored['model'] == 'test/model'
     with pytest.raises(ValueError, match='does not belong'):
         capabilities.get_conversation('bob', sid)
-    assert capabilities.list_conversations('alice')['sessions'][0]['session_id'] == sid
+    assert capabilities.list_conversations('alice')['conversations'][0]['session_id'] == 'alice:durable-session'
     assert capabilities.list_conversations('bob')['count'] == 0
     assert capabilities.delete_conversation('alice', sid) is True
     assert capabilities.get_conversation('alice', sid) is None
