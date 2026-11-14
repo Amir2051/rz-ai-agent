@@ -1040,9 +1040,10 @@ MIA_AGENT_TOOLS = [
     {"type":"function","function":{"name":"mia_review_code","description":"Review code supplied directly by the user for bugs and security. This is static analysis only and never executes code.","parameters":{"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":20000},"language":{"type":"string","maxLength":80},"question":{"type":"string","maxLength":1000}},"required":["code"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_github_read","description":"Read repository metadata, issues, pull requests, or files from Amir2051's GitHub repositories. Read-only; use only when relevant.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["repository","issues","pull_requests","file"]},"repo":{"type":"string","minLength":1,"maxLength":100},"path":{"type":"string","maxLength":500},"state":{"type":"string","enum":["open","closed","all"]},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["operation","repo"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_safenestt_investigate","description":"Run MIA-RZ's SafeNestT-style six-phase investigation pipeline on user-provided indicators. Performs only allowlisted public-source OSINT, DNS/reverse DNS, threat-intelligence, breach/exposure, domain/IP, and supported crypto lookups. Optional provider keys are read from server environment and never returned. Findings are leads requiring human review, not proof of wrongdoing. Use only for a legitimate, authorized investigation.","parameters":{"type":"object","properties":{"indicators":{"type":"object","properties":{"email":{"type":"string","maxLength":500},"domain":{"type":"string","maxLength":500},"ip_address":{"type":"string","maxLength":500},"username":{"type":"string","maxLength":500},"phone":{"type":"string","maxLength":500},"url":{"type":"string","maxLength":500},"wallet_address":{"type":"string","maxLength":500},"transaction_hash":{"type":"string","maxLength":500}},"additionalProperties":False},"include_optional_providers":{"type":"boolean"}},"required":["indicators"],"additionalProperties":False}}},
-    {"type":"function","function":{"name":"mia_osint_lookup","description":"Run one targeted SafeNestT investigation lookup instead of the full six-phase pipeline. Supported tools: dns_lookup, reverse_dns, osint_profile, reputation_score, dehashed_search, darkweb_paste, shodan_domain, shodan_host, virustotal, hibp_email, hunter_email, hunter_domain, firecrawl_scrape, crypto_trace. The selected tool must support the supplied indicator_type. Provider credentials are never returned. Use only for legitimate, authorized investigations; findings are leads, not proof.","parameters":{"type":"object","properties":{"tool_name":{"type":"string","enum":["dns_lookup","reverse_dns","osint_profile","reputation_score","dehashed_search","darkweb_paste","shodan_domain","shodan_host","virustotal","hibp_email","hunter_email","hunter_domain","firecrawl_scrape","crypto_trace"]},"indicator_type":{"type":"string","enum":["email","domain","ip_address","username","phone","url","wallet_address","transaction_hash"]},"value":{"type":"string","minLength":1,"maxLength":500}},"required":["tool_name","indicator_type","value"],"additionalProperties":False}}},
+   {"type":"function","function":{"name":"mia_osint_lookup","description":"Run one targeted SafeNestT investigation lookup instead of the full six-phase pipeline. Supported tools: dns_lookup, reverse_dns, osint_profile, reputation_score, dehashed_search, darkweb_paste, shodan_domain, shodan_host, virustotal, hibp_email, hunter_email, hunter_domain, firecrawl_scrape, crypto_trace. The selected tool must support the supplied indicator_type. Provider credentials are never returned. Use only for legitimate, authorized investigations; findings are leads, not proof.","parameters":{"type":"object","properties":{"tool_name":{"type":"string","enum":["dns_lookup","reverse_dns","osint_profile","reputation_score","dehashed_search","darkweb_paste","shodan_domain","shodan_host","virustotal","hibp_email","hunter_email","hunter_domain","firecrawl_scrape","crypto_trace"]},"indicator_type":{"type":"string","enum":["email","domain","ip_address","username","phone","url","wallet_address","transaction_hash"]},"value":{"type":"string","minLength":1,"maxLength":500}},"required":["tool_name","indicator_type","value"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_investigation_capabilities","description":"Report which SafeNestT-style investigation tools exist and which external providers are actually configured on this deployment. Returns provider names and configured booleans only; never returns secrets. Use before promising a provider-backed lookup.","parameters":{"type":"object","properties":{},"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_request_local_command","description":"Request one bounded local development command on the operator's Kali machine: inspect repository state, run Python syntax checks, validate git diffs, or run the allowlisted targeted pytest suites. Every exact command requires approval in the authenticated MIA UI. No arbitrary shell, installs, file writes, or destructive commands.","parameters":LOCAL_TERMINAL_TOOL["function"]["parameters"]}},
+feat/mia-tools-and-ui
 ]
 
 # Public-web search and extraction through the configured Firecrawl API.
@@ -1238,8 +1239,9 @@ def _dispatch_mia_agent_tool(name: str, args: dict, owner_id: str, session_id: s
             raise ValueError("indicators must be a non-empty object")
         # Do not include prompts or credentials in run events; record tool names/status only.
         result = run_investigation(indicators, include_optional_providers=args.get("include_optional_providers", True))
-        record = cap_services.create_investigation_record(owner_id, session_id, result.get("run_id"), "six_phase_investigation", result)
+       record = cap_services.create_investigation_record(owner_id, session_id, result.get("run_id"), "six_phase_investigation", result)
         return {**result, "record_id": record["id"]}
+feat/mia-tools-and-ui
     if name == "mia_request_local_command":
         if set(args) != {"command", "workspace"}:
             raise ValueError("Tool arguments must contain only command and workspace")
@@ -2515,9 +2517,21 @@ def _validated_reference_image_url(value: object) -> str:
     return parsed.geturl()
 
 
+def _generate_image(prompt, reference_image_url=None):
+    """Shared image helper used by the REST route, the agent tool and the Tool Center."""
+    payload = {"prompt": prompt}
+    if reference_image_url is not None:
+        payload["reference_image_url"] = reference_image_url
+    return _generate_image_from_payload(payload)
+
+
 @app.post("/v1/images/generations")
 def generate_image(payload: dict, current_user: dict = Depends(require_business_service_user)):
     """Generate a real image through OpenRouter's unified Image API."""
+    return _generate_image_from_payload(payload)
+
+
+def _generate_image_from_payload(payload: dict):
     endpoint = os.getenv("IMAGE_GENERATION_ENDPOINT", "https://openrouter.ai/api/v1/images").strip()
     image_key = os.getenv("IMAGE_GENERATION_API_KEY", "").strip() or OPENROUTER_API_KEY
     image_model = os.getenv("IMAGE_GENERATION_MODEL", "bytedance-seed/seedream-4.5").strip() or "bytedance-seed/seedream-4.5"

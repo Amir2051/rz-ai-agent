@@ -62,6 +62,30 @@ SKILLS = {
         "triggers": ("write", "rewrite", "draft", "story", "book", "creative", "message", "email", "caption", "content", "brand", "design", "idea"),
         "guidance": "Clarify audience and purpose when material; preserve the user's intent and voice. Produce a usable draft rather than only advice, offer a small number of meaningful variants when helpful, and mark assumptions instead of inventing facts.",
     },
+    "fraud_investigation": {
+        "name": "Fraud investigation",
+        "description": "Structured, authorized fraud and scam investigation using public-source indicators.",
+        "triggers": ('fraud', 'scam', 'phishing', 'investigate', 'suspicious', 'wallet', 'transaction', 'chargeback', 'impersonation'),
+        "guidance": "Work only from indicators the user supplies and only for authorized purposes. Separate verified evidence from leads, record sources and timestamps, report provider gaps, and never treat missing data as proof of innocence or guilt. Recommend human review and preservation of evidence before any accusation or report.",
+    },
+    "marketing_growth": {
+        "name": "Marketing and growth",
+        "description": "Positioning, campaigns, funnels and measurable growth experiments.",
+        "triggers": ('marketing', 'growth', 'campaign', 'funnel', 'seo', 'ads', 'audience', 'conversion', 'landing page', 'outreach'),
+        "guidance": "Clarify audience, offer and goal; propose a small number of testable experiments with a metric, a time window and a success threshold. Avoid unverifiable claims and follow platform advertising and anti-spam rules.",
+    },
+    "data_analysis": {
+        "name": "Data analysis",
+        "description": "Cleaning, analysing and explaining datasets with honest uncertainty.",
+        "triggers": ('data', 'dataset', 'csv', 'analysis', 'analyze', 'statistics', 'chart', 'metric', 'trend', 'correlation'),
+        "guidance": "State the question, inspect data quality first, and show method and assumptions. Distinguish correlation from causation, report sample size and uncertainty, and never present computed results that were not actually produced by a tool.",
+    },
+    "security_hardening": {
+        "name": "Security hardening",
+        "description": "Defensive review and hardening of applications, servers and accounts.",
+        "triggers": ('security', 'harden', 'vulnerability', 'authentication', 'secrets', 'firewall', 'permissions', 'audit', 'owasp', 'encryption'),
+        "guidance": "Stay defensive: identify risks, rank by impact and likelihood, and give concrete fixes with verification steps. Never expose secrets or provide offensive exploitation steps; recommend least privilege, rotation of exposed keys, logging and tests.",
+    },
 }
 
 CORE = (
