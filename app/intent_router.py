@@ -12,13 +12,11 @@ _EXPLICIT_AGENT_CUES = (
     "mcp", "supabase", "connected tools", "outside tools",
     "connected plugins", "connected integrations", "list my plugins",
     "which plugins", "what plugins", "which integrations are connected", "plugin inventory", "integration inventory",
-    "available integrations", "show connected apps", "what integrations are connected",
-    "what apps are connected",
+    "available integrations", "show connected apps", "what integrations are connected", "what apps are connected",
     # Connected-app read requests must enter the tool loop; availability is still
     # enforced by owner-scoped connector schemas and execution-time token checks.
     "gmail", "google mail", "my inbox", "search my email", "search emails",
-    "read my email", "read my emails", "read the email", "read this email",
-    "read the full email", "read the entire email", "show me the full email",
+    "read my email", "read my emails", "read the email", "read this email", "read the full email", "read the entire email", "show me the full email",
     "open this email", "email body", "full email body", "find emails", "find an email",
     "look for emails", "check my inbox", "check my email", "emails from",
     "email from",
@@ -49,6 +47,9 @@ _EXPLICIT_AGENT_CUES = (
     "investment research", "investment opportunities", "compare stocks", "compare etfs",
     "stock opportunities", "etf opportunities", "opportunity scanner", "scan investment opportunities", "compare investment candidates", "market research", "analyze this stock",
     "analyze this etf", "best buying opportunity", "best entry price", "entry price", "investment candidates",
+    # Explicit tool/API names and output requirements must route to the agent loop too.
+    "mia_opportunity_scan", "mia_market_quotes", "live quotes", "quote timestamps",
+    "source-backed research", "source backed research", "investment scan",
 )
 
 # Natural requests that imply a persistent or multi-step workflow, not a simple answer.
@@ -87,3 +88,44 @@ def should_run_investigation(message: str) -> bool:
     if any(cue in text for cue in cues):
         return True
     return bool(re.search(r"\b(?:run|perform|execute|start)\b.{0,60}\b(?:investigation|investigate)\b", text))
+
+
+def requires_investment_candidate_discovery(message: str) -> bool:
+    """Identify broad investment scans that need candidate discovery before comparison."""
+    text = re.sub(r"\s+", " ", str(message or "").casefold()).strip()
+    if not text:
+        return False
+    broad_scan = any(phrase in text for phrase in (
+        "find investment opportunities", "discover investment opportunities",
+        "scan investment opportunities", "identify investment opportunities",
+        "mia_opportunity_scan", "opportunity scanner", "stocks to invest in",
+        "etfs to invest in", "3 u.s.-listed stocks", "three u.s.-listed stocks",
+        "u.s.-listed stocks", "us-listed stocks",
+    ))
+    if not broad_scan:
+        return False
+    if re.search(r"\b(?:between|compare)\b.{0,100}\b(?:and|vs\.?|versus)\b", text):
+        return False
+    if re.search(r"\b(?:aapl|msft|nvda|tsla|amzn|googl|goog|meta|brk\.?b|spy|qqq|voo|vti)\b", text):
+        return False
+    return True
+
+
+_EXPLICIT_TICKER_ALLOWLIST = (
+    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "GOOG", "META",
+    "BRK.B", "SPY", "QQQ", "VOO", "VTI", "AMD", "AVGO", "SMCI",
+    "PLTR", "NFLX", "ORCL", "CRM", "COST", "WMT", "JPM", "LLY",
+    "XOM", "CVX", "UNH", "NVO", "COIN", "INTC", "MU", "TSM",
+)
+
+
+def extract_explicit_investment_tickers(message: str) -> list[str]:
+    """Extract only recognized ticker symbols explicitly present in a user request."""
+    text = str(message or "").upper()
+    positions = []
+    for ticker in _EXPLICIT_TICKER_ALLOWLIST:
+        pattern = r"(?<![A-Z0-9])" + re.escape(ticker) + r"(?![A-Z0-9])"
+        match = re.search(pattern, text)
+        if match:
+            positions.append((match.start(), ticker))
+    return [ticker for _, ticker in sorted(positions)]
