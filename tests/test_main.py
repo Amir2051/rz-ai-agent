@@ -1235,3 +1235,103 @@ def test_extract_reply_joins_multimodal_text_blocks_with_newlines(app):
         {"type": "text", "text": "Second paragraph"},
     ]}}]}
     assert app._extract_reply(result) == "First paragraph\nSecond paragraph"
+
+
+def test_studio_vision_status_requires_explicit_vision_model(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "")
+    response = TestClient(app.app).get("/v1/studio/vision/status")
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
+    assert response.json()["provider"] == "OpenRouter"
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_sends_only_explicit_frames_with_zdr_and_no_fallbacks(app, monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    png = base64.b64encode(b"test-image-bytes").decode("ascii")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def read(self):
+            return json.dumps({"model": "test/vision-model", "choices": [{"message": {"content": "A person stands beside a blue car."}}]}).encode()
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode())
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(app, "urlopen", fake_urlopen)
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "instruction": "Describe visible content.",
+        "frames": [{
+            "timestamp_seconds": 3.5,
+            "clip_name": "scene-01.mp4",
+            "image_data_url": "data:image/png;base64," + png,
+        }],
+    })
+    assert response.status_code == 200
+    assert response.json()["analysis"] == "A person stands beside a blue car."
+    payload = captured["payload"]
+    assert payload["model"] == "test/vision-model"
+    assert payload["provider"] == {"zdr": True, "data_collection": "deny", "allow_fallbacks": False}
+    assert len(payload["messages"][1]["content"]) == 3
+    assert payload["messages"][1]["content"][2]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "Authorization" in captured["headers"]
+    assert captured["timeout"] == 60
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_rejects_unsupported_image_data(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "frames": [{
+            "timestamp_seconds": 1,
+            "clip_name": "bad",
+            "image_data_url": "data:text/html;base64,PGgxPm5vdCBhbiBpbWFnZTwvaDE+",
+        }],
+    })
+    assert response.status_code == 422
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_never_falls_back_when_provider_rejects_images(app, monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+    from urllib.error import HTTPError
+    from io import BytesIO
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    calls = []
+
+    def reject(request, timeout):
+        calls.append(request.data)
+        raise HTTPError(request.full_url, 404, "ZDR policy", {}, BytesIO(b"restricted"))
+
+    monkeypatch.setattr(app, "urlopen", reject)
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "frames": [{
+            "timestamp_seconds": 1,
+            "clip_name": "one",
+            "image_data_url": "data:image/jpeg;base64," + base64.b64encode(b"image-bytes-payload").decode(),
+        }],
+    })
+    assert response.status_code == 502
+    assert "No fallback provider was used" in response.json()["detail"]
+    assert len(calls) == 1
+    app.app.dependency_overrides.clear()
