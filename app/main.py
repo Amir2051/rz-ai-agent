@@ -126,6 +126,9 @@ API_KEY = os.getenv("RZ_API_KEY", "").strip()
 # Dedicated server-to-server credential avoids rotating the existing RZ_API_KEY.
 MIA_RZ_SERVICE_API_KEY_CONFIGURED = bool(os.getenv("MIA_RZ_SERVICE_API_KEY", "").strip())
 SERVICE_API_KEY = os.getenv("MIA_RZ_SERVICE_API_KEY", "").strip() or API_KEY
+# Narrowly scoped credential for the Every Frame First Studio proxy. It is
+# accepted only by routes that depend on require_chat_user, never general APIs.
+STUDIO_MIA_SERVICE_API_KEY = os.getenv("STUDIO_MIA_SERVICE_API_KEY", "").strip()
 if not API_KEY and not DATABASE_AUTH_ENABLED:
     raise RuntimeError(
         "Set RZ_API_KEY for local mode or DATABASE_URL for account-auth mode."
@@ -192,8 +195,15 @@ def require_chat_user(
     x_api_key: str = Header(default=""),
 ):
     """Allow a configured service key for chat only; preserve session/bearer auth elsewhere."""
+    if DATABASE_AUTH_ENABLED and STUDIO_MIA_SERVICE_API_KEY and x_api_key and hmac.compare_digest(x_api_key, STUDIO_MIA_SERVICE_API_KEY):
+        service_id = hashlib.sha256(STUDIO_MIA_SERVICE_API_KEY.encode("utf-8")).hexdigest()[:16]
+        return {
+            "id": f"studio-mia-{service_id}",
+            "email": "studio-mia-service@rz-agent",
+            "auth_type": "studio_mia_service_key",
+        }
     if DATABASE_AUTH_ENABLED and SERVICE_API_KEY and x_api_key and hmac.compare_digest(x_api_key, SERVICE_API_KEY):
-        # Stable non-secret principal keeps service conversations separate from account sessions.
+        # Stable non-secret principal keeps existing service conversations separate from account sessions.
         service_id = hashlib.sha256(SERVICE_API_KEY.encode("utf-8")).hexdigest()[:16]
         return {
             "id": f"service-{service_id}",

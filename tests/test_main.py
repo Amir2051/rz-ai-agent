@@ -1120,6 +1120,30 @@ def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypat
 
 
 
+def test_studio_mia_service_key_is_scoped_to_chat_user(app, monkeypatch):
+    app.DATABASE_AUTH_ENABLED = True
+    app.STUDIO_MIA_SERVICE_API_KEY = "studio-mia-test-key"
+
+    def reject_session(_request):
+        raise HTTPException(status_code=401, detail="Please sign in")
+
+    monkeypatch.setattr(app, "_get_database_user", reject_session, raising=False)
+
+    service_user = app.require_chat_user(object(), "", "studio-mia-test-key")
+    assert service_user["auth_type"] == "studio_mia_service_key"
+    assert service_user["id"].startswith("studio-mia-")
+    assert service_user["email"] == "studio-mia-service@rz-agent"
+
+    # This credential is not accepted by general authenticated endpoints.
+    with pytest.raises(HTTPException) as exc:
+        app.require_app_user(object(), "", "studio-mia-test-key")
+    assert exc.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc:
+        app.require_chat_user(object(), "", "wrong-key")
+    assert exc.value.status_code == 401
+
+
 def test_hermes_completion_forwards_tools_only_when_requested(app, monkeypatch):
     from app import nous_oauth
     captured = {}
