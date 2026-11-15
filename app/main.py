@@ -233,6 +233,7 @@ OPENROUTER_ALLOW_FALLBACKS = os.getenv("OPENROUTER_ALLOW_FALLBACKS", "true").str
 OPENROUTER_FALLBACK_MODEL = os.getenv("OPENROUTER_FALLBACK_MODEL", "openrouter/free").strip() or "openrouter/free"
 OPENROUTER_CODING_MODEL = os.getenv("OPENROUTER_CODING_MODEL", "").strip()
 OPENROUTER_ANALYSIS_MODEL = os.getenv("OPENROUTER_ANALYSIS_MODEL", "").strip()
+OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "").strip()
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY", "").strip()
 
 
@@ -1956,6 +1957,106 @@ def remove_plugin(plugin_id: str, current_user: dict = Depends(require_app_user)
     except KeyError: raise HTTPException(status_code=404,detail="Plugin not found") from None
     except plugin_manager.PluginError as exc: raise HTTPException(status_code=422,detail=str(exc)) from None
     return {"deleted":True,"id":plugin_id}
+
+
+# ---------------------------------------------------------------- Studio Visual Intelligence
+STUDIO_VISION_MAX_FRAMES = 8
+STUDIO_VISION_MAX_FRAME_BYTES = 2 * 1024 * 1024
+STUDIO_VISION_MAX_TOTAL_BYTES = 8 * 1024 * 1024
+STUDIO_VISION_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+
+class StudioVisionFrame(BaseModel):
+    timestamp_seconds: float = Field(ge=0, le=24 * 60 * 60)
+    image_data_url: str = Field(min_length=20, max_length=3_000_000)
+
+
+class StudioVisionRequest(BaseModel):
+    frames: list[StudioVisionFrame] = Field(min_length=1, max_length=STUDIO_VISION_MAX_FRAMES)
+    instruction: str = Field(default="Describe the visible scenes and identify promising editing moments.", max_length=2000)
+
+
+def _decode_studio_vision_frame(frame: StudioVisionFrame) -> tuple[str, str, int]:
+    match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]*={0,2})", frame.image_data_url)
+    if not match or match.group(1) not in STUDIO_VISION_ALLOWED_MIME:
+        raise HTTPException(status_code=400, detail="Frames must be JPEG, PNG, or WebP data URLs")
+    try:
+        raw = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error):
+        raise HTTPException(status_code=400, detail="A selected frame contains invalid base64 data") from None
+    if not raw or len(raw) > STUDIO_VISION_MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail="Each selected frame must be at most 2 MB")
+    return match.group(1), match.group(2), len(raw)
+
+
+@app.get("/v1/studio/vision/status")
+def studio_vision_status(current_user: dict = Depends(require_app_user)):
+    configured = bool(OPENROUTER_API_KEY and not _is_placeholder(OPENROUTER_API_KEY) and OPENROUTER_VISION_MODEL)
+    return {
+        "available": configured,
+        "provider": "openrouter" if configured else None,
+        "model": OPENROUTER_VISION_MODEL if configured else None,
+        "requires_approval": True,
+        "max_frames": STUDIO_VISION_MAX_FRAMES,
+        "max_frame_bytes": STUDIO_VISION_MAX_FRAME_BYTES,
+        "max_total_bytes": STUDIO_VISION_MAX_TOTAL_BYTES,
+        "retention": "not_stored_by_studio_endpoint",
+        "reason": None if configured else "Configure OPENROUTER_API_KEY and OPENROUTER_VISION_MODEL on RZ Agent.",
+    }
+
+
+@app.post("/v1/studio/vision/analyze")
+def studio_vision_analyze(request: StudioVisionRequest, current_user: dict = Depends(require_app_user), x_studio_user_id: str = Header(default="")):
+    if not OPENROUTER_API_KEY or _is_placeholder(OPENROUTER_API_KEY):
+        raise HTTPException(status_code=503, detail="OpenRouter is not configured")
+    if not OPENROUTER_VISION_MODEL:
+        raise HTTPException(status_code=503, detail="OPENROUTER_VISION_MODEL is not configured")
+    if not OPENROUTER_ZDR or OPENROUTER_ALLOW_FALLBACKS:
+        raise HTTPException(status_code=503, detail="Visual analysis requires OPENROUTER_ZDR=true and OPENROUTER_ALLOW_FALLBACKS=false")
+
+    content = []
+    total_bytes = 0
+    for frame in request.frames:
+        mime, encoded, size = _decode_studio_vision_frame(frame)
+        total_bytes += size
+        if total_bytes > STUDIO_VISION_MAX_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail="Selected frames exceed the 8 MB total limit")
+        content.append({"type": "text", "text": f"Frame at {frame.timestamp_seconds:.2f} seconds:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}})
+
+    payload = {
+        "model": OPENROUTER_VISION_MODEL,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": "Analyze only what is visibly supported by these selected still frames. Do not infer audio, speech, motion between frames, or events outside the frames. Distinguish observations from editing suggestions. Return concise timestamped observations and promising highlight candidates. User instruction: " + request.instruction},
+            *content,
+        ]}],
+        "provider": {"zdr": True, "data_collection": "deny", "allow_fallbacks": False},
+        "temperature": 0.2,
+        "max_tokens": 1200,
+    }
+    req = URLRequest(
+        _openrouter_chat_completions_url(OPENROUTER_ENDPOINT),
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://studio.safenestt.com", "X-Title": "Every Frame First Studio"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        # Do not log request bodies, image payloads, or provider credentials.
+        raise HTTPException(status_code=502, detail=f"Vision provider rejected the request (HTTP {exc.code})") from None
+    except (URLError, TimeoutError):
+        raise HTTPException(status_code=502, detail="Vision provider is temporarily unavailable") from None
+
+    choices = result.get("choices") or []
+    message = choices[0].get("message", {}) if choices else {}
+    analysis = message.get("content") if isinstance(message, dict) else None
+    if isinstance(analysis, list):
+        analysis = "\n".join(part.get("text", "") for part in analysis if isinstance(part, dict))
+    if not isinstance(analysis, str) or not analysis.strip():
+        raise HTTPException(status_code=502, detail="Vision provider returned no usable analysis")
+    return {"analysis": analysis.strip(), "model": OPENROUTER_VISION_MODEL, "provider": "openrouter", "frames_analyzed": len(request.frames), "stored": False, "user_id": x_studio_user_id or current_user.get("id", "")}
 
 
 @app.post("/v1/chat")
