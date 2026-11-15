@@ -1120,6 +1120,42 @@ def test_service_api_key_is_limited_to_chat_in_database_auth_mode(app, monkeypat
 
 
 
+def test_studio_mia_service_key_is_scoped_to_chat_user(app, monkeypatch):
+    app.DATABASE_AUTH_ENABLED = True
+    app.STUDIO_MIA_SERVICE_API_KEY = "studio-mia-test-key"
+
+    def reject_session(_request):
+        raise HTTPException(status_code=401, detail="Please sign in")
+
+    monkeypatch.setattr(app, "_get_database_user", reject_session, raising=False)
+
+    from types import SimpleNamespace
+    request = SimpleNamespace(headers={"x-studio-user-id": "firebase-user-one"})
+    service_user = app.require_chat_user(request, "", "studio-mia-test-key")
+    assert service_user["auth_type"] == "studio_mia_service_key"
+    assert service_user["id"].startswith("studio-mia-")
+    assert service_user["email"] == "studio-mia-service@rz-agent"
+
+    second_user = app.require_chat_user(
+        SimpleNamespace(headers={"x-studio-user-id": "firebase-user-two"}),
+        "", "studio-mia-test-key"
+    )
+    assert second_user["id"] != service_user["id"]
+
+    # This credential is not accepted by general authenticated endpoints.
+    with pytest.raises(HTTPException) as exc:
+        app.require_app_user(request, "", "studio-mia-test-key")
+    assert exc.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc:
+        app.require_chat_user(request, "", "wrong-key")
+    assert exc.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc:
+        app.require_chat_user(SimpleNamespace(headers={}), "", "studio-mia-test-key")
+    assert exc.value.status_code == 401
+
+
 def test_hermes_completion_forwards_tools_only_when_requested(app, monkeypatch):
     from app import nous_oauth
     captured = {}
@@ -1254,7 +1290,7 @@ def test_studio_vision_requires_zdr_and_no_fallbacks(app, monkeypatch):
     monkeypatch.setattr(app, "OPENROUTER_ZDR", False)
     monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
     client = TestClient(app.app)
-    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key"}, json={"frames": [{"timestamp_seconds": 1, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"test-image").decode()}]})
+    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key"}, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"test-image").decode()}]})
     assert response.status_code == 503
     assert "OPENROUTER_ZDR=true" in response.json()["detail"]
 
@@ -1266,9 +1302,9 @@ def test_studio_vision_validates_frame_payload_and_size(app, monkeypatch):
     monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
     client = TestClient(app.app)
     headers = {"X-Api-Key": "test-key"}
-    invalid = client.post("/v1/studio/vision/analyze", headers=headers, json={"frames": [{"timestamp_seconds": 1, "image_data_url": "https://example.com/frame.jpg"}]})
-    assert invalid.status_code == 400
-    too_many = client.post("/v1/studio/vision/analyze", headers=headers, json={"frames": [{"timestamp_seconds": i, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"x").decode()} for i in range(9)]})
+    invalid = client.post("/v1/studio/vision/analyze", headers=headers, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": "https://example.com/frame.jpg"}]})
+    assert invalid.status_code == 422
+    too_many = client.post("/v1/studio/vision/analyze", headers=headers, json={"approved": True, "frames": [{"timestamp_seconds": i, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"x").decode()} for i in range(9)]})
     assert too_many.status_code == 422
 
 
@@ -1289,12 +1325,136 @@ def test_studio_vision_sends_only_approved_frames_to_zdr_openrouter(app, monkeyp
     monkeypatch.setattr(app, "urlopen", fake_urlopen)
     client = TestClient(app.app)
     image = "data:image/jpeg;base64," + app.base64.b64encode(b"approved-frame-bytes").decode()
-    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key", "X-Studio-User-Id": "studio-user-123"}, json={"frames": [{"timestamp_seconds": 1, "image_data_url": image}], "instruction": "Find highlights"})
+    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key", "X-Studio-User-Id": "studio-user-123"}, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": image}], "instruction": "Find highlights"})
     assert response.status_code == 200
     assert response.json()["stored"] is False
     assert response.json()["frames_analyzed"] == 1
     payload = captured["payload"]
     assert payload["provider"] == {"zdr": True, "data_collection": "deny", "allow_fallbacks": False}
     assert payload["model"] == "test/vision"
-    assert payload["messages"][0]["content"][2]["image_url"]["url"] == image
+    assert payload["messages"][1]["content"][2]["image_url"]["url"] == image
     assert captured["headers"]["Authorization"] == "Bearer real"
+
+def test_studio_vision_rejects_request_without_explicit_approval(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
+    response = TestClient(app.app).post(
+        "/v1/studio/vision/analyze",
+        headers={"X-Api-Key": "test-key"},
+        json={"frames": [{
+            "timestamp_seconds": 1,
+            "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"approved-gate-test-frame").decode(),
+        }]},
+    )
+    assert response.status_code == 403
+    assert "Explicit approval" in response.json()["detail"]
+
+def test_studio_vision_status_requires_explicit_vision_model(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "")
+    response = TestClient(app.app).get("/v1/studio/vision/status")
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
+    assert response.json()["provider"] is None
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_sends_only_explicit_frames_with_zdr_and_no_fallbacks(app, monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
+    png = base64.b64encode(b"test-image-bytes").decode("ascii")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def read(self):
+            return json.dumps({"model": "test/vision-model", "choices": [{"message": {"content": "A person stands beside a blue car."}}]}).encode()
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode())
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(app, "urlopen", fake_urlopen)
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
+        "instruction": "Describe visible content.",
+        "frames": [{
+            "timestamp_seconds": 3.5,
+            "clip_name": "scene-01.mp4",
+            "image_data_url": "data:image/png;base64," + png,
+        }],
+    })
+    assert response.status_code == 200
+    assert response.json()["analysis"] == "A person stands beside a blue car."
+    payload = captured["payload"]
+    assert payload["model"] == "test/vision-model"
+    assert payload["provider"] == {"zdr": True, "data_collection": "deny", "allow_fallbacks": False}
+    assert len(payload["messages"][1]["content"]) == 3
+    assert payload["messages"][1]["content"][2]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "Authorization" in captured["headers"]
+    assert captured["timeout"] == 60
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_rejects_unsupported_image_data(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
+        "frames": [{
+            "timestamp_seconds": 1,
+            "clip_name": "bad",
+            "image_data_url": "data:text/html;base64,PGgxPm5vdCBhbiBpbWFnZTwvaDE+",
+        }],
+    })
+    assert response.status_code == 422
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_never_falls_back_when_provider_rejects_images(app, monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+    from urllib.error import HTTPError
+    from io import BytesIO
+
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", False)
+    calls = []
+
+    def reject(request, timeout):
+        calls.append(request.data)
+        raise HTTPError(request.full_url, 404, "ZDR policy", {}, BytesIO(b"restricted"))
+
+    monkeypatch.setattr(app, "urlopen", reject)
+    response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
+        "frames": [{
+            "timestamp_seconds": 1,
+            "clip_name": "one",
+            "image_data_url": "data:image/jpeg;base64," + base64.b64encode(b"image-bytes-payload").decode(),
+        }],
+    })
+    assert response.status_code == 502
+    assert "No fallback provider was used" in response.json()["detail"]
+    assert len(calls) == 1
+    app.app.dependency_overrides.clear()

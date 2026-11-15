@@ -51,3 +51,7 @@ Do not commit connection strings, provider keys, or account passwords.
 ## MCP bearer tokens
 
 Create a token while signed in through the browser. Use the minimum required scopes: `mcp:read` for discovery and read-only lists, and `mcp:call` for MCP tool calls and approved capability actions. Store the token in the MCP client's secret/credential settings as `Authorization: Bearer <token>`. Tokens are stored only as SHA-256 hashes, can expire after 1–365 days (or be configured without expiry), and can be revoked with `DELETE /v1/auth/tokens/{token_id}`. Browser account authentication remains cookie-based; this does not create a public auth bypass.
+
+## First-party studio integration
+
+Set `STUDIO_ALLOWED_ORIGINS` to the studio exact HTTPS origin (for example `https://studio.example.com`). This enables credentialed CORS and login-origin validation only for that exact origin; do not use `*`. Keep `APP_ORIGIN` set to the RZ Agent origin.
