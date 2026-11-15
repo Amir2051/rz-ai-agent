@@ -1129,18 +1129,30 @@ def test_studio_mia_service_key_is_scoped_to_chat_user(app, monkeypatch):
 
     monkeypatch.setattr(app, "_get_database_user", reject_session, raising=False)
 
-    service_user = app.require_chat_user(object(), "", "studio-mia-test-key")
+    from types import SimpleNamespace
+    request = SimpleNamespace(headers={"x-studio-user-id": "firebase-user-one"})
+    service_user = app.require_chat_user(request, "", "studio-mia-test-key")
     assert service_user["auth_type"] == "studio_mia_service_key"
     assert service_user["id"].startswith("studio-mia-")
     assert service_user["email"] == "studio-mia-service@rz-agent"
 
+    second_user = app.require_chat_user(
+        SimpleNamespace(headers={"x-studio-user-id": "firebase-user-two"}),
+        "", "studio-mia-test-key"
+    )
+    assert second_user["id"] != service_user["id"]
+
     # This credential is not accepted by general authenticated endpoints.
     with pytest.raises(HTTPException) as exc:
-        app.require_app_user(object(), "", "studio-mia-test-key")
+        app.require_app_user(request, "", "studio-mia-test-key")
     assert exc.value.status_code == 401
 
     with pytest.raises(HTTPException) as exc:
-        app.require_chat_user(object(), "", "wrong-key")
+        app.require_chat_user(request, "", "wrong-key")
+    assert exc.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc:
+        app.require_chat_user(SimpleNamespace(headers={}), "", "studio-mia-test-key")
     assert exc.value.status_code == 401
 
 

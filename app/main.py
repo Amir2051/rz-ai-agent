@@ -196,7 +196,15 @@ def require_chat_user(
 ):
     """Allow a configured service key for chat only; preserve session/bearer auth elsewhere."""
     if DATABASE_AUTH_ENABLED and STUDIO_MIA_SERVICE_API_KEY and x_api_key and hmac.compare_digest(x_api_key, STUDIO_MIA_SERVICE_API_KEY):
-        service_id = hashlib.sha256(STUDIO_MIA_SERVICE_API_KEY.encode("utf-8")).hexdigest()[:16]
+        # The proxy supplies the verified Firebase UID. Hash it with the service
+        # credential so chat history is isolated per Studio user without storing
+        # or exposing the Firebase UID as the RZ Agent principal.
+        studio_user_id = request.headers.get("x-studio-user-id", "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", studio_user_id):
+            raise HTTPException(status_code=401, detail="A verified Studio user identity is required")
+        service_id = hashlib.sha256(
+            f"{STUDIO_MIA_SERVICE_API_KEY}:{studio_user_id}".encode("utf-8")
+        ).hexdigest()[:16]
         return {
             "id": f"studio-mia-{service_id}",
             "email": "studio-mia-service@rz-agent",
