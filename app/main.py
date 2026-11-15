@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pathlib import Path
 from app import capabilities as cap_services
@@ -93,6 +94,24 @@ app = FastAPI(
     title="MIA · RZ Agent",
     description="MIA personal AI assistant API (model-agnostic backend)",
     version="0.3.0",
+)
+
+# Exact-origin credentialed access for approved first-party clients such as the video studio.
+# Browser session cookies remain HttpOnly; no shared service key is sent to the client.
+_APP_ORIGIN = os.getenv("APP_ORIGIN", "").strip().rstrip("/")
+_STUDIO_ALLOWED_ORIGINS = [
+    item.strip().rstrip("/")
+    for item in os.getenv("STUDIO_ALLOWED_ORIGINS", "").split(",")
+    if item.strip()
+]
+_CORS_ORIGINS = sorted({origin for origin in [_APP_ORIGIN, *_STUDIO_ALLOWED_ORIGINS] if origin})
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    max_age=600,
 )
 
 # ---------------------------------------------------------------- server auth

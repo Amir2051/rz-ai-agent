@@ -36,10 +36,16 @@ def _token_hash(token: str) -> str:
 
 def _origin_check(request: Request):
     expected = os.getenv("APP_ORIGIN", "").strip().rstrip("/")
+    additional = {
+        item.strip().rstrip("/")
+        for item in os.getenv("STUDIO_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    }
+    allowed = ({expected} if expected else set()) | additional
     origin = request.headers.get("origin", "").rstrip("/")
     if COOKIE_SECURE and not expected:
         raise HTTPException(status_code=503, detail="APP_ORIGIN must be configured in production")
-    if expected and origin and origin != expected:
+    if origin and allowed and origin not in allowed:
         raise HTTPException(status_code=403, detail="Origin not allowed")
     if COOKIE_SECURE and not origin:
         raise HTTPException(status_code=403, detail="Origin header required")
