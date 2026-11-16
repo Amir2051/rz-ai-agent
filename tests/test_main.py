@@ -1273,6 +1273,99 @@ def test_extract_reply_joins_multimodal_text_blocks_with_newlines(app):
     assert app._extract_reply(result) == "First paragraph\nSecond paragraph"
 
 
+def test_studio_vision_status_is_authenticated_and_reports_unconfigured(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "")
+    client = TestClient(app.app)
+    assert client.get("/v1/studio/vision/status").status_code == 401
+    response = client.get("/v1/studio/vision/status", headers={"X-Api-Key": "test-key"})
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert response.json()["requires_approval"] is True
+
+
+def test_studio_vision_privacy_controls_are_isolated_from_chat_settings(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
+    monkeypatch.setattr(app, "OPENROUTER_API_KEY", "real")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "deepseek/deepseek-v4.1-flash-1017")
+    monkeypatch.setattr(app, "OPENROUTER_ZDR", False)
+    monkeypatch.setattr(app, "OPENROUTER_ALLOW_FALLBACKS", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
+    response = TestClient(app.app).get("/v1/studio/vision/status")
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    app.app.dependency_overrides.clear()
+
+
+def test_studio_vision_requires_zdr_and_no_fallbacks(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", False)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
+    client = TestClient(app.app)
+    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key"}, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"test-image").decode()}]})
+    assert response.status_code == 503
+    assert "OPENROUTER_VISION_ZDR=true" in response.json()["detail"]
+
+
+def test_studio_vision_validates_frame_payload_and_size(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
+    client = TestClient(app.app)
+    headers = {"X-Api-Key": "test-key"}
+    invalid = client.post("/v1/studio/vision/analyze", headers=headers, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": "https://example.com/frame.jpg"}]})
+    assert invalid.status_code == 422
+    too_many = client.post("/v1/studio/vision/analyze", headers=headers, json={"approved": True, "frames": [{"timestamp_seconds": i, "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"x").decode()} for i in range(9)]})
+    assert too_many.status_code == 422
+
+
+def test_studio_vision_sends_only_approved_frames_to_zdr_openrouter(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
+    captured = {}
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self): return json.dumps({"choices": [{"message": {"content": "Frame at 1.00 seconds: a person enters the room."}}]}).encode()
+    def fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data)
+        captured["headers"] = dict(request.header_items())
+        return FakeResponse()
+    monkeypatch.setattr(app, "urlopen", fake_urlopen)
+    client = TestClient(app.app)
+    image = "data:image/jpeg;base64," + app.base64.b64encode(b"approved-frame-bytes").decode()
+    response = client.post("/v1/studio/vision/analyze", headers={"X-Api-Key": "test-key", "X-Studio-User-Id": "studio-user-123"}, json={"approved": True, "frames": [{"timestamp_seconds": 1, "image_data_url": image}], "instruction": "Find highlights"})
+    assert response.status_code == 200
+    assert response.json()["stored"] is False
+    assert response.json()["frames_analyzed"] == 1
+    payload = captured["payload"]
+    assert payload["provider"] == {"zdr": True, "data_collection": "deny", "allow_fallbacks": False}
+    assert payload["model"] == "test/vision"
+    assert payload["messages"][1]["content"][2]["image_url"]["url"] == image
+    assert captured["headers"]["Authorization"] == "Bearer real"
+
+def test_studio_vision_rejects_request_without_explicit_approval(app, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
+    response = TestClient(app.app).post(
+        "/v1/studio/vision/analyze",
+        headers={"X-Api-Key": "test-key"},
+        json={"frames": [{
+            "timestamp_seconds": 1,
+            "image_data_url": "data:image/jpeg;base64," + app.base64.b64encode(b"approved-gate-test-frame").decode(),
+        }]},
+    )
+    assert response.status_code == 403
+    assert "Explicit approval" in response.json()["detail"]
+
 def test_studio_vision_status_requires_explicit_vision_model(app, monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -1281,7 +1374,7 @@ def test_studio_vision_status_requires_explicit_vision_model(app, monkeypatch):
     response = TestClient(app.app).get("/v1/studio/vision/status")
     assert response.status_code == 200
     assert response.json()["configured"] is False
-    assert response.json()["provider"] == "OpenRouter"
+    assert response.json()["provider"] is None
     app.app.dependency_overrides.clear()
 
 
@@ -1291,6 +1384,8 @@ def test_studio_vision_sends_only_explicit_frames_with_zdr_and_no_fallbacks(app,
 
     app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
     monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
     png = base64.b64encode(b"test-image-bytes").decode("ascii")
     captured = {}
 
@@ -1310,6 +1405,7 @@ def test_studio_vision_sends_only_explicit_frames_with_zdr_and_no_fallbacks(app,
 
     monkeypatch.setattr(app, "urlopen", fake_urlopen)
     response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
         "instruction": "Describe visible content.",
         "frames": [{
             "timestamp_seconds": 3.5,
@@ -1334,7 +1430,10 @@ def test_studio_vision_rejects_unsupported_image_data(app, monkeypatch):
 
     app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
     monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
     response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
         "frames": [{
             "timestamp_seconds": 1,
             "clip_name": "bad",
@@ -1353,6 +1452,8 @@ def test_studio_vision_never_falls_back_when_provider_rejects_images(app, monkey
 
     app.app.dependency_overrides[app.require_chat_user] = lambda: {"id": "studio-user", "email": "studio@example.test"}
     monkeypatch.setattr(app, "OPENROUTER_VISION_MODEL", "test/vision-model")
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ZDR", True)
+    monkeypatch.setattr(app, "OPENROUTER_VISION_ALLOW_FALLBACKS", False)
     calls = []
 
     def reject(request, timeout):
@@ -1361,6 +1462,7 @@ def test_studio_vision_never_falls_back_when_provider_rejects_images(app, monkey
 
     monkeypatch.setattr(app, "urlopen", reject)
     response = TestClient(app.app).post("/v1/studio/vision/analyze", json={
+        "approved": True,
         "frames": [{
             "timestamp_seconds": 1,
             "clip_name": "one",
