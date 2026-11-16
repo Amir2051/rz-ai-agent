@@ -271,6 +271,9 @@ OPENROUTER_FALLBACK_MODEL = os.getenv("OPENROUTER_FALLBACK_MODEL", "openrouter/f
 OPENROUTER_CODING_MODEL = os.getenv("OPENROUTER_CODING_MODEL", "").strip()
 OPENROUTER_ANALYSIS_MODEL = os.getenv("OPENROUTER_ANALYSIS_MODEL", "").strip()
 OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "").strip()
+# Vision privacy controls are intentionally isolated from normal MIA chat routing.
+OPENROUTER_VISION_ZDR = os.getenv("OPENROUTER_VISION_ZDR", "false").strip().lower() in {"1", "true", "yes", "on"}
+OPENROUTER_VISION_ALLOW_FALLBACKS = os.getenv("OPENROUTER_VISION_ALLOW_FALLBACKS", "true").strip().lower() in {"1", "true", "yes", "on"}
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY", "").strip()
 
 
@@ -2034,8 +2037,8 @@ def studio_vision_status(current_user: dict = Depends(require_chat_user)):
         OPENROUTER_API_KEY
         and not _is_placeholder(OPENROUTER_API_KEY)
         and OPENROUTER_VISION_MODEL
-        and OPENROUTER_ZDR
-        and not OPENROUTER_ALLOW_FALLBACKS
+        and OPENROUTER_VISION_ZDR
+        and not OPENROUTER_VISION_ALLOW_FALLBACKS
     )
     return {
         "available": configured,
@@ -2061,8 +2064,8 @@ def studio_vision_analyze(request: StudioVisionRequest, current_user: dict = Dep
         raise HTTPException(status_code=503, detail="OpenRouter is not configured for visual analysis.")
     if not OPENROUTER_VISION_MODEL:
         raise HTTPException(status_code=503, detail="OPENROUTER_VISION_MODEL is not configured.")
-    if not OPENROUTER_ZDR or OPENROUTER_ALLOW_FALLBACKS:
-        raise HTTPException(status_code=503, detail="Visual analysis requires OPENROUTER_ZDR=true and OPENROUTER_ALLOW_FALLBACKS=false.")
+    if not OPENROUTER_VISION_ZDR or OPENROUTER_VISION_ALLOW_FALLBACKS:
+        raise HTTPException(status_code=503, detail="Visual analysis requires OPENROUTER_VISION_ZDR=true and OPENROUTER_VISION_ALLOW_FALLBACKS=false.")
 
     content = []
     total_bytes = 0
