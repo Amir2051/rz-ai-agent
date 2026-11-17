@@ -54,3 +54,8 @@ def test_company_website_research_routes_through_agent_tools():
     from app.intent_router import should_use_agent_tools
     assert should_use_agent_tools("Research this company website: https://example.com")
     assert should_use_agent_tools("Analyze this website https://example.com")
+
+
+def test_power_outage_protocol_routes_to_agent_tools():
+    assert should_use_agent_tools("MIA, initiate power outage protocol and scan infrastructure")
+    assert should_use_agent_tools("Run power-outage-status on my local machine")

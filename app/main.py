@@ -821,7 +821,7 @@ LOCAL_TERMINAL_TOOL = {
     "function": {
         "name": "mia_request_local_command",
         "description": (
-            "Request one read-only command on the user's own Kali machine. "
+            "Request one read-only command on the user's own Kali machine. For a power-outage protocol, request power-outage-status to inspect only this Kali host. "
             "Use only when the user explicitly asks to inspect or run something locally. "
             "The user must approve each command in the authenticated MIA chat UI before the local worker receives it; arbitrary shell syntax is forbidden."
         ),
@@ -832,7 +832,7 @@ LOCAL_TERMINAL_TOOL = {
                     "type": "string",
                     "enum": [
                         "pwd", "python3 --version", "uname -a", "git status --short",
-                        "git log -1 --oneline", "git branch --show-current", "ls -la"
+                        "git log -1 --oneline", "git branch --show-current", "ls -la", "power-outage-status"
                     ]
                 },
                 "workspace": {"type": "string", "enum": ["dev-terminal", "rz-ai-agent"]}
@@ -860,7 +860,7 @@ def _should_offer_local_terminal_tools(message: str) -> bool:
 def _request_local_terminal_command(command: str, workspace: str, owner_id: str = "local") -> dict:
     if command not in {
         "pwd", "python3 --version", "uname -a", "git status --short",
-        "git log -1 --oneline", "git branch --show-current", "ls -la"
+        "git log -1 --oneline", "git branch --show-current", "ls -la", "power-outage-status"
     }:
         return {"status": "blocked", "message": "Command is not on the read-only allowlist."}
     if workspace not in {"dev-terminal", "rz-ai-agent"}:
@@ -985,7 +985,7 @@ MIA_AGENT_TOOLS = [
     {"type":"function","function":{"name":"mia_review_code","description":"Review code supplied directly by the user for bugs and security. This is static analysis only and never executes code.","parameters":{"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":20000},"language":{"type":"string","maxLength":80},"question":{"type":"string","maxLength":1000}},"required":["code"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_github_read","description":"Read repository metadata, issues, pull requests, or files from Amir2051's GitHub repositories. Read-only; use only when relevant.","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["repository","issues","pull_requests","file"]},"repo":{"type":"string","minLength":1,"maxLength":100},"path":{"type":"string","maxLength":500},"state":{"type":"string","enum":["open","closed","all"]},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["operation","repo"],"additionalProperties":False}}},
     {"type":"function","function":{"name":"mia_safenestt_investigate","description":"Run MIA-RZ's SafeNestT-style six-phase investigation pipeline on user-provided indicators. Performs only allowlisted public-source OSINT, DNS/reverse DNS, threat-intelligence, breach/exposure, domain/IP, and supported crypto lookups. Optional provider keys are read from server environment and never returned. Findings are leads requiring human review, not proof of wrongdoing. Use only for a legitimate, authorized investigation.","parameters":{"type":"object","properties":{"indicators":{"type":"object","properties":{"email":{"type":"string","maxLength":500},"domain":{"type":"string","maxLength":500},"ip_address":{"type":"string","maxLength":500},"username":{"type":"string","maxLength":500},"phone":{"type":"string","maxLength":500},"url":{"type":"string","maxLength":500},"wallet_address":{"type":"string","maxLength":500},"transaction_hash":{"type":"string","maxLength":500}},"additionalProperties":False},"include_optional_providers":{"type":"boolean"}},"required":["indicators"],"additionalProperties":False}}},
-    {"type":"function","function":{"name":"mia_request_local_command","description":"Request one read-only command on the user's Kali machine. Use only when the user explicitly asks for local inspection. The authenticated user must approve each command in the UI; arbitrary shell syntax is forbidden.","parameters":LOCAL_TERMINAL_TOOL["function"]["parameters"]}},
+    {"type":"function","function":{"name":"mia_request_local_command","description":"Request one read-only command on the user's Kali machine. For a power-outage protocol, request power-outage-status to inspect only this Kali host. Use only when the user explicitly asks for local inspection. The authenticated user must approve each command in the UI; arbitrary shell syntax is forbidden.","parameters":LOCAL_TERMINAL_TOOL["function"]["parameters"]}},
 ]
 
 # Public-web search and extraction through the configured Firecrawl API.

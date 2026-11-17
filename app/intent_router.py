@@ -15,7 +15,7 @@ _EXPLICIT_AGENT_CUES = (
     "autonomously", "multi-step task", "continue the task", "resume the task",
     "track my progress", "update my task", "work through this plan",
     "continue where we left off", "resume where we left off", "check my saved tasks",
-    "review this repo", "inspect this repository", "work on my repo",
+    "power outage", "power-outage-status", "emergency power protocol", "local power status", "scan infrastructure", "review this repo", "inspect this repository", "work on my repo",
     "search and compare", "look up and summarize", "investigate and summarize",
     "research this and give me sources", "research and report back",
     "safenestt investigation", "run an investigation", "validation investigation", "complete validation investigation", "six-phase investigation", "six phase investigation", "investigate this email", "investigate this domain", "investigate this ip", "trace this wallet", "osint investigation", "threat intelligence lookup",

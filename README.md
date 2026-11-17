@@ -202,3 +202,32 @@ Authenticated investment endpoints are available at `/v1/investment/research`, `
 MIA exposes Firecrawl search/map/scrape tools and a read-only `browserbase_inspect` tool for JavaScript-rendered public websites. Marketing website research uses Firecrawl site mapping and selected-page extraction, then supplements the homepage with Browserbase-rendered text when configured. Configure `FIRECRAWL_API_KEY` and `BROWSERBASE_API_KEY` as private server secrets; `BROWSERBASE_PROJECT_ID` is optional. Browserbase sessions are temporary and use Playwright over CDP. The browser tool blocks private/local URL targets and does not log in, submit forms, purchase, post, or modify sites.
 
 The Business Studio PDF workflow exposes `/v1/business/pdf/intake` and `/v1/business/pdf/generate`. Intake returns document-specific required questions. Generation refuses incomplete briefs and placeholder text, requests structured JSON from MIA, validates the resulting sections, and renders a professionally styled PDF with page footers. DriveNest's provider marketing integration is scoped to its listing-owner credentials and can use these routes for brochures, flyers, and childcare parent information packs.
+
+
+## Supervised MIA local terminal bridge
+
+The browser voice/chat flow can request a local read-only command. The authenticated MIA UI displays the exact command and workspace; the command is not queued until the signed-in user explicitly approves it. The local worker then polls the hosted API over HTTPS and executes only its hard-coded allowlist with `shell=False`. Model output is never passed to a shell.
+
+### Enable only after server-side setup
+
+1. Configure `MIA_TERMINAL_BRIDGE_TOKEN` as a private server environment secret on the RZ Agent service. Generate a long random value locally and do not paste it into chat, source files, or logs.
+2. On the authorized Kali machine, set the exact same token in the worker's environment and run:
+
+```bash
+cd /home/ronzoro/rz-ai-agent-integrations/.worktrees/terminal-bridge
+read -r -s -p "MIA bridge token: " MIA_TERMINAL_BRIDGE_TOKEN
+printf '\\n'
+export MIA_TERMINAL_BRIDGE_TOKEN
+python3 scripts/mia-local-bridge-worker.py
+unset MIA_TERMINAL_BRIDGE_TOKEN
+```
+
+The worker defaults to `https://rz-ai.safenestt.com`. For local testing only, `RZ_AI_URL` may point to an HTTP localhost endpoint. The worker does not start without a token, rejects non-local HTTP URLs, and never prints the token.
+
+### Power-outage command
+
+Say: **"MIA, initiate power outage protocol. Run the local power status check and report what is confirmed, unavailable, or needs a human."**
+
+MIA can request `power-outage-status`, which collects read-only telemetry from this Kali host: uptime, network interfaces/routes, default-gateway reachability, selected network/UPS service states, and UPS battery/input readings when NUT is installed and configured. It does not control power equipment.
+
+**Scope limitation:** this is a local-host diagnostic, not a utility-grid or building-wide assessment. CCTV, access-control panels, generators, building UPS devices, and remote sites remain unavailable until separately connected through authenticated vendor APIs or approved local adapters. The report must say "unavailable/not connected" rather than infer their status. No breakers, relays, generators, vehicle systems, or security controls can be operated by this worker.
