@@ -1,0 +1,11 @@
+BEGIN;
+CREATE ROLE marketing_reader NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+GRANT marketing_reader TO marketing_owner;
+GRANT USAGE ON SCHEMA public TO marketing_reader;
+GRANT SELECT ON organizations,organization_members,workspaces,subscriptions,security_audit,subscription_plans TO marketing_reader;
+CREATE POLICY member_self_read ON organization_members FOR SELECT TO marketing_reader USING (user_id = nullif(current_setting('app.user_id',true),'')::uuid);
+CREATE POLICY organization_read ON organizations FOR SELECT TO marketing_reader USING (EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=organizations.id));
+CREATE POLICY workspaces_member_read ON workspaces FOR SELECT TO marketing_reader USING (EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=workspaces.organization_id));
+CREATE POLICY subscriptions_member_read ON subscriptions FOR SELECT TO marketing_reader USING (EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=subscriptions.organization_id));
+CREATE POLICY security_audit_member_read ON security_audit FOR SELECT TO marketing_reader USING (EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=security_audit.organization_id));
+COMMIT;

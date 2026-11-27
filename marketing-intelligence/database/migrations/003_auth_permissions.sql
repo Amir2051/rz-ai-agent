@@ -1,0 +1,10 @@
+BEGIN;
+CREATE ROLE marketing_auth NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+GRANT USAGE ON SCHEMA public TO marketing_auth;
+GRANT SELECT (id,email,password_hash,disabled_at) ON auth_users TO marketing_auth;
+GRANT SELECT,INSERT,DELETE ON auth_sessions TO marketing_auth;
+GRANT marketing_reader TO marketing_auth;
+GRANT marketing_auth TO marketing_owner;
+CREATE TABLE auth_login_limits (bucket text PRIMARY KEY, attempts integer NOT NULL CHECK(attempts>=0), window_start timestamptz NOT NULL);
+GRANT SELECT,INSERT,UPDATE ON auth_login_limits TO marketing_auth;
+COMMIT;

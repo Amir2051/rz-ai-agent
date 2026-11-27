@@ -1,0 +1,10 @@
+BEGIN;
+CREATE TABLE ai_credentials(workspace_id uuid NOT NULL REFERENCES workspaces(id),provider text NOT NULL CHECK(provider IN ('openai','anthropic','openrouter','gemini','ollama','custom')),ciphertext bytea NOT NULL CHECK(octet_length(ciphertext) BETWEEN 29 AND 8300),key_version integer NOT NULL CHECK(key_version>0),PRIMARY KEY(workspace_id,provider));
+ALTER TABLE ai_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_credentials FORCE ROW LEVEL SECURITY;
+CREATE ROLE marketing_ai_credentials NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+GRANT marketing_reader TO marketing_ai_credentials;
+GRANT USAGE ON SCHEMA public TO marketing_ai_credentials;
+GRANT SELECT,INSERT,UPDATE,DELETE ON ai_credentials TO marketing_ai_credentials;
+CREATE POLICY ai_credentials_admin ON ai_credentials TO marketing_ai_credentials USING(EXISTS(SELECT 1 FROM workspaces w JOIN organization_members m ON m.organization_id=w.organization_id WHERE w.id=workspace_id AND m.role IN ('owner','admin'))) WITH CHECK(EXISTS(SELECT 1 FROM workspaces w JOIN organization_members m ON m.organization_id=w.organization_id WHERE w.id=workspace_id AND m.role IN ('owner','admin')));
+COMMIT;

@@ -1,0 +1,16 @@
+{
+  "provider": "Neon",
+  "project_id": "solitary-cherry-92683719",
+  "database": "marketing_intelligence",
+  "region": "aws-us-east-2",
+  "postgres": 17,
+  "plan": "free",
+  "schema_initialized": true,
+  "application_connected": false,
+  "verified_tables": 9,
+  "forced_rls_tables": 5,
+  "tenant_policies_configured": true,
+  "tenant_read_role": "marketing_reader",
+  "tenant_read_isolation_tested": true,
+  "tenant_write_enabled": false
+}

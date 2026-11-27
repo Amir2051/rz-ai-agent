@@ -280,3 +280,7 @@ GitHub setup: create a GitHub App, enable **Request user authorization (OAuth) d
 Stripe setup: for a user's own Stripe account, use the Plugins view's restricted-key field and create an `rk_live_` or `rk_test_` key with only the read permissions needed for Account, Customers, Payment Intents, and Invoices. Do not use a full `sk_` secret key. Stripe Connect OAuth is optional and the read-only OAuth scope is available to Connect Extensions (not ordinary Connect platforms); use it only if RZ-AI is registered as a Stripe Connect Extension. Its extension client ID and platform secret are configured separately. Stripe's current Connect API guidance prefers the platform secret key plus a `Stripe-Account` header for connected-account requests.
 
 The current native tool set is read-only: Gmail search/read, GitHub repository/issue/PR listing, and Stripe customer/payment/invoice listing. External write operations are intentionally not exposed in this first release; add them later behind the existing explicit-approval workflow.
+
+## Marketing Intelligence
+
+The redesigned marketing application lives in `marketing-intelligence/` with its own database migrations, authentication, MCP gateway and tests. Existing RZ AI application remains unchanged. Imported from local marketing commit a0d8132 (OpenCode baseline 1a9a371). Production activation remains gated.
