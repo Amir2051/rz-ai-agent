@@ -102,7 +102,8 @@ def enroll(conn, user_id):
     conn.execute(
         'INSERT INTO auth_mfa(user_id,encrypted_secret,key_version,confirmed_at,last_step) '
         'VALUES (%s,%s,1,NULL,-1) ON CONFLICT(user_id) DO UPDATE SET '
-        'encrypted_secret=EXCLUDED.encrypted_secret,key_version=1,confirmed_at=NULL,last_step=-1',
+        'encrypted_secret=EXCLUDED.encrypted_secret,key_version=1,confirmed_at=NULL,last_step=-1 '
+        'WHERE auth_mfa.confirmed_at IS NULL',
         (str(user_id), seal(secret, MFA_LABEL)),
     )
     return secret

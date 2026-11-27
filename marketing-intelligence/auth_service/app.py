@@ -116,7 +116,7 @@ def home(request: Request):
         current_user(request)
     except HTTPException as e:
         if e.status_code == 401:
-            return (ROOT / 'control-center/login.html').read_text()
+            return (ROOT / 'control-center/login.html').read_text().replace('data-google-enabled="0"', 'data-google-enabled="1"' if os.getenv('MI_LOGIN_ENABLED') == '1' and os.getenv('MI_REGISTRATION_ENABLED') == '1' and os.getenv('MI_GOOGLE_CLIENT_JSON') else 'data-google-enabled="0"')
         raise
     return (ROOT / 'control-center/index.html').read_text()
 
@@ -173,7 +173,7 @@ def login(payload: Credentials, request: Request, response: Response):
             owner_enrollment = row[1].lower() == 'yayamoussa2050@gmail.com' and not (mfa_row and mfa_row[0])
             token = activation.create_challenge(conn, row[0], owner_enrollment=owner_enrollment)
             _challenge(response, token)
-            return {'mfa_required': True}
+            return {'mfa_required': True, 'owner_enrollment': owner_enrollment}
         return _issue_session(conn, row[0], response)
 
 
@@ -190,8 +190,11 @@ def _consume(request, response):
 def mfa_enroll(request: Request, response: Response):
     origin(request)
     record = _consume(request, response)
+    if not record['owner_enrollment']:
+        raise HTTPException(403, 'Enrollment not authorized')
     with db() as conn:
         secret = activation.enroll(conn, record['user_id'])
+        _challenge(response, activation.create_challenge(conn, record['user_id'], owner_enrollment=True))
     uri = ('otpauth://totp/SafeNestT%20Marketing:' + record['user_id'] +
            '?secret=' + secret + '&issuer=SafeNestT%20Marketing&algorithm=SHA1&digits=6&period=30')
     return {'enrollment_uri': uri, 'requires_confirmation': True}
@@ -201,6 +204,8 @@ def mfa_enroll(request: Request, response: Response):
 def mfa_confirm(payload: dict, request: Request, response: Response):
     origin(request)
     record = _consume(request, response)
+    if not record['owner_enrollment']:
+        raise HTTPException(403, 'Enrollment not authorized')
     with db() as conn:
         codes = activation.confirm(conn, record['user_id'], payload.get('code', ''))
     if not codes:
@@ -296,7 +301,7 @@ def google_callback(request: Request, response: Response):
     if not attempt:
         raise HTTPException(400, 'Invalid authorization state')
     try:
-        subject, email = google_verify.exchange(code, attempt[1], attempt[0], config)
+        subject, email = google_verify.exchange(code, attempt[1], attempt[0], config, allow_owner=True)
     except Exception:
         raise HTTPException(400, 'Google token exchange failed') from None
     try:
@@ -305,10 +310,12 @@ def google_callback(request: Request, response: Response):
     except ValueError:
         raise HTTPException(400, 'Identity not eligible') from None
     with db() as conn:
-        if activation.confirmation_required(conn, user_id, email):
-            raise HTTPException(403, 'Use password sign-in for MFA')
         redirect = RedirectResponse('/', status_code=303)
-        _issue_session(conn, user_id, redirect)
+        if activation.confirmation_required(conn, user_id, email):
+            redirect = RedirectResponse('/?mfa=verify', status_code=303)
+            _challenge(redirect, activation.create_challenge(conn, user_id))
+        else:
+            _issue_session(conn, user_id, redirect)
         redirect.delete_cookie('__Host-mi_google_state', path='/', secure=True, httponly=True, samesite='lax')
         return redirect
 

@@ -1,7 +1,7 @@
 """Fail-closed policy for already cryptographically verified OIDC claims."""
 import time,hmac
 OWNER='yayamoussa2050@gmail.com'
-def validate_claims(claims,client_id,nonce,now=None):
+def validate_claims(claims,client_id,nonce,now=None,allow_owner=False):
     now=time.time() if now is None else now
     if claims.get('iss') not in ('https://accounts.google.com','accounts.google.com'):raise ValueError('Issuer rejected')
     if claims.get('aud')!=client_id or claims.get('azp',client_id)!=client_id:raise ValueError('Audience rejected')
@@ -11,5 +11,5 @@ def validate_claims(claims,client_id,nonce,now=None):
     email=claims.get('email');subject=claims.get('sub')
     if claims.get('email_verified') is not True or not isinstance(email,str) or not 3<=len(email)<=254 or '@' not in email or not isinstance(subject,str) or not 1<=len(subject)<=255:raise ValueError('Identity rejected')
     email=email.lower()
-    if email==OWNER:raise ValueError('Administrator requires separate enrollment')
+    if email==OWNER and not allow_owner:raise ValueError('Administrator requires separate enrollment')
     return subject,email
