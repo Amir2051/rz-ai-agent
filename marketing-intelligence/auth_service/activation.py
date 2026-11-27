@@ -109,10 +109,17 @@ def enroll(conn, user_id):
     return secret
 
 
+def has_confirmed_mfa(conn, user_id):
+    _bind_user(conn, user_id)
+    row = conn.execute(
+        'SELECT 1 FROM auth_mfa WHERE user_id=%s AND confirmed_at IS NOT NULL',
+        (str(user_id),),
+    ).fetchone()
+    return row is not None
+
+
 def confirmation_required(conn, user_id, email):
-    row = conn.execute('SELECT confirmed_at FROM auth_mfa WHERE user_id=%s', (str(user_id),)).fetchone()
-    owner = email.lower() == OWNER
-    return owner or bool(row and row[0] is not None)
+    return email.lower() == OWNER or has_confirmed_mfa(conn, user_id)
 
 
 def confirm(conn, user_id, code):

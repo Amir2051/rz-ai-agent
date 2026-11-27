@@ -1,7 +1,7 @@
 # Release handoff
 
 Worktree: /home/ronzoro/dev-terminal/rz-ai-marketing-integration on Kali.
-Branch: feature/marketing-intelligence. Items 1 and 2 are done. Resume at item 3 in TASKLIST.md.
+Branch: feature/marketing-intelligence. Items 1–4 are done. Resume at item 5 in TASKLIST.md.
 No branch was pushed, no PR was opened, and no production database or service was contacted.
 
 ## Verified results
@@ -11,6 +11,8 @@ No branch was pushed, no PR was opened, and no production database or service wa
 - Fixed damaged chat-composer markup, missing conversation status, run-history initialization, and stale image tool registry metadata. Image generation still requires per-account opt-in and an explicit approval for each action. The tests used fixtures and no paid provider requests.
 - Kept conversation owner validation and the external 404 check. Updated tests to match early storage-level owner rejection and isolate Tool Center imports so test API keys cannot leak across fixtures.
 
+- Items 3–4: Offline PostgreSQL HTTP flow passed against migrations 001–012 and against the equivalent scratch rollout from 001+002 using 013. The provider exchange was simulated using signed assertions and the real claim verifier. Chromium also verified the sign-in, MFA, and sign-out controls using intercepted responses. The offline marketing suite passed 107 tests and 30 subtests.
+
 ## Resume
 
-Continue at item 3 only when requested. Finish browser Google sign-in and MFA, enforce proof of existing password and MFA before owner linking, and run the requested negative regressions. No scratch restore, migration, rollback or backup verification has been performed. Keep real Google sign-in and MFA as the owner's final live check after automated verification.
+Item 5 is secure owner-account linking after existing password and MFA proof. The current owner restriction remains in effect. Complete the remaining negative auth tests, full checks, verification of a fresh restorable backup, and scratch migration and rollback before moving toward production. Real Google sign-in and MFA remain the owner's final live check.

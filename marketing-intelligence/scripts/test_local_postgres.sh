@@ -15,6 +15,7 @@ for f in database/migrations/00{1,2,3,4,5,6,7,8,9}_*.sql; do "${P[@]}" -f "$f" >
 "${P[@]}" -f database/migrations/014_automation.sql >/dev/null
 PYTHONPATH=. .venv-auth/bin/python scripts/test_customer_registration.py
 PYTHONPATH=. .venv-auth/bin/python scripts/test_mfa_postgres.py
+PYTHONPATH=. .venv-auth/bin/python scripts/test_google_mfa_postgres.py
 "${P[@]}" -f database/tests/tenant_isolation.sql
 "${P[@]}" -f database/tests/draft_isolation.sql
 

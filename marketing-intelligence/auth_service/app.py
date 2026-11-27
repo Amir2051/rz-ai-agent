@@ -22,6 +22,8 @@ from auth_service import activation, customer_registration, google_login, google
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 COOKIE = '__Host-mi_session'
 CHALLENGE = '__Host-mi_challenge'
+GOOGLE_STATE = '__Host-mi_google_state'
+MFA_ATTEMPT_LIMIT = 5
 hasher = PasswordHasher()
 DUMMY = hasher.hash(secrets.token_urlsafe(32))
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,7 +133,7 @@ def _issue_session(conn, user_id, response):
     return {'authenticated': True}
 
 
-def _challenge(response, token, owner_enrollment=False):
+def _challenge(response, token):
     response.set_cookie(CHALLENGE, token, max_age=600, secure=True, httponly=True, samesite='lax', path='/')
 
 
@@ -169,30 +171,52 @@ def login(payload: Credentials, request: Request, response: Response):
         if not row or not valid:
             raise HTTPException(401, 'Invalid credentials')
         if activation.confirmation_required(conn, row[0], row[1]):
-            mfa_row = conn.execute('SELECT confirmed_at FROM auth_mfa WHERE user_id=%s', (row[0],)).fetchone()
-            owner_enrollment = row[1].lower() == 'yayamoussa2050@gmail.com' and not (mfa_row and mfa_row[0])
+            owner_enrollment = (row[1].lower() == activation.OWNER
+                                and not activation.has_confirmed_mfa(conn, row[0]))
             token = activation.create_challenge(conn, row[0], owner_enrollment=owner_enrollment)
             _challenge(response, token)
             return {'mfa_required': True, 'owner_enrollment': owner_enrollment}
         return _issue_session(conn, row[0], response)
 
 
-def _consume(request, response):
-    token = request.cookies.get(CHALLENGE, '')
-    with db() as conn:
-        record = activation.consume_challenge(conn, token)
+def _clear_cookie(response, name):
+    response.delete_cookie(name, path='/', secure=True, httponly=True, samesite='lax')
+
+
+def _challenge_account(conn, request):
+    record = activation.consume_challenge(conn, request.cookies.get(CHALLENGE, ''))
     if not record:
         raise HTTPException(401, 'MFA challenge expired')
+    active = conn.execute(
+        'SELECT 1 FROM auth_users WHERE id=%s AND disabled_at IS NULL',
+        (record['user_id'],),
+    ).fetchone()
+    if not active:
+        raise HTTPException(401, 'Sign in required')
     return record
+
+
+def _mfa_attempt_allowed(conn, user_id):
+    attempts, = conn.execute(
+        """INSERT INTO auth_login_limits(bucket,attempts,window_start)
+           VALUES (%s,1,now()) ON CONFLICT(bucket) DO UPDATE SET
+             attempts=CASE WHEN auth_login_limits.window_start <= now()-interval '15 minutes'
+                           THEN 1 ELSE LEAST(auth_login_limits.attempts,%s)+1 END,
+             window_start=CASE WHEN auth_login_limits.window_start <= now()-interval '15 minutes'
+                               THEN now() ELSE auth_login_limits.window_start END
+           RETURNING attempts""",
+        ('mfa:' + digest(user_id), MFA_ATTEMPT_LIMIT),
+    ).fetchone()
+    return attempts <= MFA_ATTEMPT_LIMIT
 
 
 @app.post('/v1/auth/mfa/enroll')
 def mfa_enroll(request: Request, response: Response):
     origin(request)
-    record = _consume(request, response)
-    if not record['owner_enrollment']:
-        raise HTTPException(403, 'Enrollment not authorized')
     with db() as conn:
+        record = _challenge_account(conn, request)
+        if not record['owner_enrollment'] or activation.has_confirmed_mfa(conn, record['user_id']):
+            raise HTTPException(403, 'Enrollment not authorized')
         secret = activation.enroll(conn, record['user_id'])
         _challenge(response, activation.create_challenge(conn, record['user_id'], owner_enrollment=True))
     uri = ('otpauth://totp/SafeNestT%20Marketing:' + record['user_id'] +
@@ -200,37 +224,39 @@ def mfa_enroll(request: Request, response: Response):
     return {'enrollment_uri': uri, 'requires_confirmation': True}
 
 
+def _finish_mfa(request, response, code, *, enrollment):
+    origin(request)
+    with db() as conn:
+        record = _challenge_account(conn, request)
+        user_id = record['user_id']
+        if record['owner_enrollment'] != enrollment:
+            raise HTTPException(403, 'MFA challenge purpose mismatch')
+        if not enrollment and not activation.has_confirmed_mfa(conn, user_id):
+            raise HTTPException(403, 'Confirmed MFA is required')
+        allowed = _mfa_attempt_allowed(conn, user_id)
+        if allowed:
+            verified = (activation.confirm(conn, user_id, code) if enrollment
+                        else activation.verify(conn, user_id, code))
+            if verified:
+                result = _issue_session(conn, user_id, response)
+                if enrollment:
+                    result['recovery_codes'] = verified
+                _clear_cookie(response, CHALLENGE)
+                return result
+    # Return failures after the transaction commits the counted attempt and challenge consumption.
+    if not allowed:
+        raise HTTPException(429, 'Too many MFA attempts', headers={'Retry-After': '900'})
+    raise HTTPException(400, 'Invalid MFA code or recovery code')
+
+
 @app.post('/v1/auth/mfa/confirm')
 def mfa_confirm(payload: dict, request: Request, response: Response):
-    origin(request)
-    record = _consume(request, response)
-    if not record['owner_enrollment']:
-        raise HTTPException(403, 'Enrollment not authorized')
-    with db() as conn:
-        codes = activation.confirm(conn, record['user_id'], payload.get('code', ''))
-    if not codes:
-        raise HTTPException(400, 'Invalid verification code')
-    with db() as conn:
-        result = _issue_session(conn, record['user_id'], response)
-    response.delete_cookie(CHALLENGE, path='/', secure=True, httponly=True, samesite='lax')
-    return {**result, 'recovery_codes': codes}
+    return _finish_mfa(request, response, payload.get('code', ''), enrollment=True)
 
 
 @app.post('/v1/auth/mfa/verify')
 def mfa_verify(payload: dict, request: Request, response: Response):
-    origin(request)
-    record = _consume(request, response)
-    with db() as conn:
-        row = conn.execute('SELECT email FROM auth_users WHERE id=%s', (record['user_id'],)).fetchone()
-        owner = bool(row and row[0].lower() == 'yayamoussa2050@gmail.com')
-        confirmed = conn.execute('SELECT confirmed_at FROM auth_mfa WHERE user_id=%s', (record['user_id'],)).fetchone()
-        if owner and not (confirmed and confirmed[0]):
-            raise HTTPException(403, 'Owner MFA enrollment required')
-        if not activation.verify(conn, record['user_id'], payload.get('code', '')):
-            raise HTTPException(400, 'Invalid MFA code or recovery code')
-        result = _issue_session(conn, record['user_id'], response)
-    response.delete_cookie(CHALLENGE, path='/', secure=True, httponly=True, samesite='lax')
-    return result
+    return _finish_mfa(request, response, payload.get('code', ''), enrollment=False)
 
 
 @app.get('/v1/auth/me')
@@ -242,10 +268,18 @@ def me(user=Depends(current_user)):
 def logout(request: Request, response: Response):
     origin(request)
     token = request.cookies.get(COOKIE, '')
-    if token:
+    pending = request.cookies.get(CHALLENGE, '')
+    google_state = request.cookies.get(GOOGLE_STATE, '')
+    if token or pending or google_state:
         with db() as conn:
-            conn.execute('DELETE FROM auth_sessions WHERE token_hash=%s', (digest(token),))
-    response.delete_cookie(COOKIE, path='/', secure=True, httponly=True, samesite='lax')
+            if token:
+                conn.execute('DELETE FROM auth_sessions WHERE token_hash=%s', (digest(token),))
+            if pending:
+                activation.consume_challenge(conn, pending)
+            if google_state:
+                activation.consume_oidc_attempt(conn, google_state)
+    for name in (COOKIE, CHALLENGE, GOOGLE_STATE):
+        _clear_cookie(response, name)
     return {'authenticated': False}
 
 
@@ -273,7 +307,7 @@ def google_start():
     except (ValueError, OSError):
         raise HTTPException(503, 'Google sign-in not configured') from None
     redirect = RedirectResponse(prepared['url'], status_code=303)
-    redirect.set_cookie('__Host-mi_google_state', prepared['state'], max_age=600,
+    redirect.set_cookie(GOOGLE_STATE, prepared['state'], max_age=600,
                         secure=True, httponly=True, samesite='lax', path='/')
     return redirect
 
@@ -286,7 +320,7 @@ def google_callback(request: Request, response: Response):
     if q.get('error'):
         raise HTTPException(400, 'Google authorization denied')
     state, code = q.get('state', ''), q.get('code', '')
-    browser_state = request.cookies.get('__Host-mi_google_state', '')
+    browser_state = request.cookies.get(GOOGLE_STATE, '')
     if not state or not code or not browser_state or not hmac.compare_digest(state.encode(), browser_state.encode()):
         raise HTTPException(400, 'Invalid authorization state')
     path = os.getenv('MI_GOOGLE_CLIENT_JSON', '')
@@ -313,10 +347,15 @@ def google_callback(request: Request, response: Response):
         redirect = RedirectResponse('/', status_code=303)
         if activation.confirmation_required(conn, user_id, email):
             redirect = RedirectResponse('/?mfa=verify', status_code=303)
+            previous_session = request.cookies.get(COOKIE, '')
+            if previous_session:
+                conn.execute('DELETE FROM auth_sessions WHERE token_hash=%s', (digest(previous_session),))
+            _clear_cookie(redirect, COOKIE)
             _challenge(redirect, activation.create_challenge(conn, user_id))
         else:
             _issue_session(conn, user_id, redirect)
-        redirect.delete_cookie('__Host-mi_google_state', path='/', secure=True, httponly=True, samesite='lax')
+            _clear_cookie(redirect, CHALLENGE)
+        _clear_cookie(redirect, GOOGLE_STATE)
         return redirect
 
 

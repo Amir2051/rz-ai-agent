@@ -16,6 +16,7 @@ P=("$B/psql" -X -v ON_ERROR_STOP=1)
 "${P[@]}" -f database/migrations/013_production_rollout.sql >/dev/null
 PYTHONPATH=. .venv-auth/bin/python scripts/test_customer_registration.py
 PYTHONPATH=. .venv-auth/bin/python scripts/test_mfa_postgres.py
+PYTHONPATH=. .venv-auth/bin/python scripts/test_google_mfa_postgres.py
 "${P[@]}" -f database/tests/tenant_isolation.sql >/dev/null
 "${P[@]}" -f database/tests/draft_isolation.sql >/dev/null
 PYTHONPATH=. .venv-auth/bin/python scripts/test_api_postgres.py
