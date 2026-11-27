@@ -1,0 +1,14 @@
+{
+  "mcp-ads": {
+    "commit": "9acd8edaedef9879071e9291617f48b5f1c6d0c4",
+    "license": "MIT",
+    "python_files": 76,
+    "syntax_errors": []
+  },
+  "marketing-data-hub": {
+    "commit": "d894835cb64b8a7667ae3f7fb7a205f0f4352b62",
+    "license": "MIT",
+    "python_files": 88,
+    "syntax_errors": []
+  }
+}

@@ -67,8 +67,9 @@ def test_live_postgres_conversation_save_restore_upsert_list_delete(postgres_cap
 
         listed = capabilities.list_conversations(user_id, ttl_seconds=600, limit=10)
         assert listed["count"] == 1
-        assert listed["sessions"][0]["session_id"] == session_id
-        assert listed["sessions"][0]["model"] == "updated-model"
+        assert listed["sessions"] == [session_id]
+        assert listed["conversations"][0]["session_id"] == session_id
+        assert listed["conversations"][0]["model"] == "updated-model"
     finally:
         capabilities.delete_conversation(user_id, session_id)
 

@@ -1,0 +1,14 @@
+BEGIN;
+CREATE TABLE mcp_activity(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),workspace_id uuid NOT NULL REFERENCES workspaces(id),actor_id uuid NOT NULL REFERENCES auth_users(id),client_id text NOT NULL CHECK(length(client_id) BETWEEN 1 AND 200),tool text NOT NULL CHECK(length(tool) BETWEEN 1 AND 100),outcome text NOT NULL CHECK(outcome IN ('success','denied','failed')),created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE mcp_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mcp_activity FORCE ROW LEVEL SECURITY;
+CREATE ROLE marketing_mcp_audit NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+GRANT marketing_reader TO marketing_mcp_audit;
+GRANT marketing_mcp_audit TO marketing_auth;
+GRANT USAGE ON SCHEMA public TO marketing_mcp_audit;
+GRANT SELECT ON mcp_activity TO marketing_reader;
+GRANT INSERT(workspace_id,actor_id,client_id,tool,outcome) ON mcp_activity TO marketing_mcp_audit;
+CREATE POLICY activity_read ON mcp_activity FOR SELECT TO marketing_reader USING(EXISTS(SELECT 1 FROM workspaces w WHERE w.id=workspace_id));
+CREATE POLICY activity_append ON mcp_activity FOR INSERT TO marketing_mcp_audit WITH CHECK(actor_id=nullif(current_setting('app.user_id',true),'')::uuid AND EXISTS(SELECT 1 FROM workspaces w WHERE w.id=workspace_id));
+CREATE INDEX mcp_activity_workspace_time ON mcp_activity(workspace_id,created_at DESC);
+COMMIT;

@@ -1,0 +1,88 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · SafeNestT Marketing Intelligence</title><style>body{margin:0;background:#0a101c;color:#e7edf7;font:15px system-ui;display:grid;place-items:center;min-height:100vh}main{width:min(380px,85vw);background:#111b2b;border:1px solid #263347;padding:32px;border-radius:16px}label{display:block;margin:16px 0 6px}input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid #38475d;background:#0a101c;color:inherit;font:inherit}button{background:#1c514e;margin-top:20px}p{color:#91a2bb}strong{color:#6edbc6}</style><main><strong>SafeNestT MI</strong><h1>Welcome back</h1><p>Marketing Intelligence · Powered by RZ AI</p><form id="login"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required minlength="12"><button>Sign in</button></form><button id="google" data-google-enabled="0" type="button" disabled aria-describedby="google-status">Continue with Google</button><p id="google-status">Google sign-in is being configured.</p><form id="mfa" hidden><label for="code">Authenticator or recovery code</label><input id="code" autocomplete="one-time-code" required><button>Verify</button><p><a href="/">Start sign-in again</a></p></form><p id="enrollment" hidden></p><p id="message" role="status"></p></main><script>
+const $ = id => document.getElementById(id);
+const message = $('message');
+let enrolling = false;
+
+async function post(path, data = {}) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  if (response.status === 429) throw Error('Too many attempts. Wait 15 minutes and sign in again.');
+  if (!response.ok) throw Error('Sign-in could not be verified. Start sign-in again.');
+  return response.json();
+}
+
+function showMfa() {
+  $('login').hidden = true;
+  $('google').hidden = true;
+  $('google-status').hidden = true;
+  $('mfa').hidden = false;
+  $('code').focus();
+}
+
+function onSubmit(form, action) {
+  const button = form.querySelector('button');
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (button.disabled) return;
+    button.disabled = true;
+    message.textContent = '';
+    try {
+      await action();
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  };
+}
+
+if ($('google').dataset.googleEnabled === '1') {
+  $('google').disabled = false;
+  $('google-status').hidden = true;
+  $('google').onclick = () => location.assign('/oauth/google/start');
+}
+if (new URLSearchParams(location.search).get('mfa') === 'verify') showMfa();
+
+onSubmit($('login'), async () => {
+  let result;
+  try {
+    result = await post('/v1/auth/login', {email: $('email').value, password: $('password').value});
+  } finally {
+    $('password').value = '';
+  }
+  if (!result.mfa_required) {
+    location.replace('/');
+    return;
+  }
+  showMfa();
+  if (result.owner_enrollment) {
+    enrolling = true;
+    const setup = await post('/v1/auth/mfa/enroll');
+    $('enrollment').hidden = false;
+    $('enrollment').textContent = 'Add this URI to your authenticator: ' + setup.enrollment_uri;
+  }
+});
+
+onSubmit($('mfa'), async () => {
+  let result;
+  try {
+    result = await post('/v1/auth/mfa/' + (enrolling ? 'confirm' : 'verify'), {code: $('code').value});
+  } finally {
+    $('code').value = '';
+  }
+  if (!result.recovery_codes) {
+    location.replace('/');
+    return;
+  }
+  $('enrollment').hidden = false;
+  $('enrollment').textContent = 'Save these recovery codes securely: ' + result.recovery_codes.join(' ');
+  $('mfa').hidden = true;
+  const button = document.createElement('button');
+  button.textContent = 'Continue';
+  button.onclick = () => location.replace('/');
+  $('enrollment').after(button);
+});
+</script></html>

@@ -106,16 +106,15 @@ def test_postgres_restore_and_list_are_owner_and_ttl_scoped(postgres_adapter):
     assert restored["history"] == history and restored["model"] == "model-x"
     get_conn = next(c for c in [conn] if any("SELECT title" in q and "history" in q for q, _ in c.statements))
     get_query, get_params = next((q, p) for q, p in get_conn.statements if "SELECT title" in q and "history" in q)
-    assert "user_id=%s AND session_id=%s" in get_query
-    assert get_params[0:2] == ("alice", "alice:session-1")
-    # created_at/updated_at are in the SELECT result, not query params
+    assert "user_id=%s AND session_id=%s AND updated_at >= EXTRACT(EPOCH FROM now()) - %s" in get_query
+    assert get_params == ("alice", "alice:session-1", 600)
 
     listed = capabilities.list_conversations("alice", ttl_seconds=600, limit=10)
     assert listed["count"] == 1
     assert listed["conversations"][0]["session_id"] == "alice:session-1"
     list_query, list_params = next((q, p) for q, p in list_conn.statements if "SELECT session_id,title,model" in q)
-    assert "WHERE user_id=%s AND updated_at >= now() - %s * interval '1 second'" in list_query
-    assert list_params[0] == "alice" and list_params[2] == 10
+    assert "WHERE user_id=%s AND updated_at >= EXTRACT(EPOCH FROM now()) - %s" in list_query
+    assert list_params == ("alice", 600, 10)
     assert list_conn.closed
 
 

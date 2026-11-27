@@ -1,0 +1,9 @@
+Activate marketing authentication, MCP OAuth server and automation
+
+- Add registration, Google OIDC callback with state/nonce/PKCE binding,
+  mandatory owner MFA with recovery codes and replay protection.
+- Add OAuth 2.1 authorization server with discovery, DCR, PKCE S256,
+  audience-bound tokens, refresh rotation, revocation and full audit.
+- Wire durable budget reservations into the director runtime; add leased
+  persistent automation jobs and idempotent production rollout migration.
+- Extend tests to 100 offline tests plus database, MCP and browser suites.

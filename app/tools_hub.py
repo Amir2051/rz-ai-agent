@@ -31,7 +31,7 @@ REGISTRY = {
     "github_comment_pr": {"label": "Comment on pull request", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Post a comment to a pull request in an allowlisted Amir2051 repository.", "approval_required": True},
    "mcp_call": {"label": "Outside MCP tools", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Run a tool from an MCP server configured in RZ_MCP_SERVERS. Read-only tools run directly; every other tool needs approval each time.", "approval_required": True},
     "mcp_plugins": {"label": "MCP plugin actions", "category": "connected services", "risk": "high", "mode": "external_write", "description": "Run write-capable tools from your saved MCP plugins only after explicit approval.", "approval_required": True},
-    "image_generation": {"label": "Image generation (not wired)", "category": "creative", "risk": "cost", "mode": "unavailable", "description": "Reserved for a future approved adapter; not executable in this release.", "approval_required": True},
+    "image_generation": {"label": "Image generation", "category": "creative", "risk": "high", "mode": "external_write", "description": "Generate an image through the configured provider. Requires one-time approval and may incur charges.", "approval_required": True},
 }
 DEFAULT_PERMISSIONS = {name: (name not in {"github_create_issue", "github_comment_pr", "image_generation"}) for name in REGISTRY}
 HIGH_RISK = {"github_create_issue", "github_comment_pr", "image_generation", "saved_memory", "task_plans", "mcp_call", "mcp_plugins"}

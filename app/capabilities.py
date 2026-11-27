@@ -539,7 +539,7 @@ def get_conversation(user_id: str, session_id: str, ttl_seconds: int = 0) -> dic
         if ttl_seconds > 0:
             if kind == "postgres":
                 q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
-                     "WHERE user_id=%s AND session_id=%s AND updated_at >= now() - %s * interval '1 second'")
+                     "WHERE user_id=%s AND session_id=%s AND updated_at >= EXTRACT(EPOCH FROM now()) - %s")
                 params = (str(user_id), session_id, ttl_seconds)
             else:
                 q = ("SELECT title,history,model,created_at,updated_at FROM rz_agent_conversations "
@@ -574,7 +574,7 @@ def list_conversations(user_id: str, limit: int = 30, ttl_seconds: int = 0) -> d
         if ttl_seconds > 0:
             if kind == "postgres":
                 q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "
-                     "WHERE user_id=%s AND updated_at >= now() - %s * interval '1 second' ORDER BY updated_at DESC LIMIT %s")
+                     "WHERE user_id=%s AND updated_at >= EXTRACT(EPOCH FROM now()) - %s ORDER BY updated_at DESC LIMIT %s")
                 params = (str(user_id), ttl_seconds, limit)
             else:
                 q = ("SELECT session_id,title,model,created_at,updated_at FROM rz_agent_conversations "

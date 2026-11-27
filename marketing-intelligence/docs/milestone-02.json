@@ -1,0 +1,10 @@
+{
+  "ads_dependencies": "installed; pip check passed",
+  "hub_dependencies": "installed; pip check passed",
+  "hub_offline_tests": 63,
+  "policy_tests": 6,
+  "mcp_protocol_checks": 5,
+  "live_accounts": false,
+  "rz_runtime_connected": false,
+  "external_writes": false
+}
