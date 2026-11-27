@@ -179,12 +179,10 @@ def login(payload: Credentials, request: Request, response: Response):
             valid = False
         if not row or not valid:
             raise HTTPException(401, 'Invalid credentials')
-        if activation.confirmation_required(conn, row[0], row[1]):
-            owner_enrollment = (row[1].lower() == activation.OWNER
-                                and not activation.has_confirmed_mfa(conn, row[0]))
-            token = activation.create_challenge(conn, row[0], owner_enrollment=owner_enrollment)
-            _challenge(response, token)
-            return {'mfa_required': True, 'owner_enrollment': owner_enrollment}
+        if activation.has_confirmed_mfa(conn, row[0]):
+            _challenge(response, activation.create_challenge(conn, row[0]))
+            return {'mfa_required': True, 'owner_enrollment': False}
+        _clear_cookie(response, CHALLENGE)
         return _issue_session(conn, row[0], response)
 
 
@@ -427,7 +425,7 @@ def google_callback(request: Request):
         raise HTTPException(400, 'Identity not eligible') from None
     with db() as conn:
         redirect = RedirectResponse('/', status_code=303)
-        if activation.confirmation_required(conn, user_id, email):
+        if activation.has_confirmed_mfa(conn, user_id):
             redirect = RedirectResponse('/?mfa=verify', status_code=303)
             previous_session = request.cookies.get(COOKIE, '')
             if previous_session:

@@ -159,6 +159,19 @@ def run():
                 'INSERT INTO auth_users(email,password_hash) VALUES (%s,%s) RETURNING id',
                 (auth.activation.OWNER, auth.hasher.hash(password)),
             ).fetchone()
+
+        # Password sign-in does not auto-enroll an owner. Google linking still
+        # requires fresh MFA proof even with a valid authenticated session.
+        owner_credentials = {'email': auth.activation.OWNER, 'password': password}
+        login = client.post('/v1/auth/login', json=owner_credentials, headers=HEADERS)
+        assert login.json() == {'authenticated': True}
+        assert auth.COOKIE in client.cookies and auth.CHALLENGE not in client.cookies
+        assert client.get('/v1/auth/me').json()['id'] == str(owner_id)
+        assert client.post('/v1/auth/google/link', json={'password': password, 'code': '000000'},
+                           headers=HEADERS).status_code == 401
+        assert client.post('/v1/auth/logout', headers=HEADERS).status_code == 200
+
+        with psycopg.connect() as conn:
             conn.execute(
                 'INSERT INTO auth_mfa(user_id,encrypted_secret,key_version,confirmed_at) VALUES (%s,%s,1,now())',
                 (owner_id, auth.activation.seal(owner_secret, auth.activation.MFA_LABEL)),

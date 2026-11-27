@@ -86,10 +86,10 @@ class Activation(unittest.TestCase):
         conn.rows = {}
         self.assertFalse(activation.verify(conn, 'user-1', code))
 
-    def test_owner_requires_mfa_even_without_enrollment(self):
-        conn = FakeConn()
-        self.assertTrue(activation.confirmation_required(conn, 'user-1', activation.OWNER))
-        self.assertFalse(activation.confirmation_required(conn, 'user-1', 'customer@example.invalid'))
+    def test_mfa_requires_a_confirmed_factor(self):
+        self.assertFalse(activation.has_confirmed_mfa(FakeConn(), 'user-1'))
+        conn = FakeConn({'SELECT 1 FROM auth_mfa': (1,)})
+        self.assertTrue(activation.has_confirmed_mfa(conn, 'user-1'))
 
 
 if __name__ == '__main__':

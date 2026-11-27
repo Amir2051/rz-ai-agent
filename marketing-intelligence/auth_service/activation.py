@@ -129,10 +129,6 @@ def has_confirmed_mfa(conn, user_id):
     return row is not None
 
 
-def confirmation_required(conn, user_id, email):
-    return email.lower() == OWNER or has_confirmed_mfa(conn, user_id)
-
-
 def confirm(conn, user_id, code):
     _bind_user(conn, user_id)
     row = conn.execute('SELECT encrypted_secret FROM auth_mfa WHERE user_id=%s AND confirmed_at IS NULL', (str(user_id),)).fetchone()
