@@ -16,12 +16,14 @@ def app(tmp_path, monkeypatch):
     monkeypatch.delenv("IMAGE_GENERATION_ENDPOINT", raising=False)
     monkeypatch.delenv("IMAGE_GENERATION_API_KEY", raising=False)
     monkeypatch.delenv("IMAGE_GENERATION_MODEL", raising=False)
-    sys.modules.pop("app.main", None)
+    for name in ("app.main", "app.tools_hub"):
+        sys.modules.pop(name, None)
     import app.main as module
     yield module
     with module._store_lock:
         module._conversations.clear()
-    sys.modules.pop("app.main", None)
+    for name in ("app.main", "app.tools_hub"):
+        sys.modules.pop(name, None)
 
 
 @pytest.fixture

@@ -1,4 +1,6 @@
 import sys
+
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -24,7 +26,8 @@ def test_conversation_persists_and_is_owner_scoped(monkeypatch, tmp_path):
         restored_session = module._get_session(session)
         assert restored_session['history'] == history
         assert restored_session['model'] == 'test-model'
-        assert module.cap_services.get_conversation('another-user', session) is None
+        with pytest.raises(ValueError, match='conversation does not belong to this account'):
+            module.cap_services.get_conversation('another-user', session)
         listed = client.get('/v1/conversations', headers=headers)
         assert listed.status_code == 200
         assert any(item['session_id'] == session for item in listed.json()['conversations'])

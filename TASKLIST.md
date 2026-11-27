@@ -1,7 +1,7 @@
 # Release task register
 Branch: feature/marketing-intelligence
 1. DONE — Commit existing local fixes; full marketing suite. Command: cd marketing-intelligence && /home/ronzoro/dev-terminal/safenestt-marketing-intelligence/.venv-auth/bin/python scripts/offline_pytest.py -o 'pythonpath=. /home/ronzoro/dev-terminal/safenestt-marketing-intelligence/vendor/marketing-data-hub/src' tests -q. Output: 107 passed, 30 subtests passed in 0.79s. git diff --check clean. Re-run returned 107 passed, 30 subtests passed in 0.81s. Initial fixes are in ea4d610.
-2. IN PROGRESS — Resolve all ten RZ AI failures. Partial fixes in 34cbb41. Commands and evidence in HANDOFF.md. Full run did not finish during browser tests.
+2. DONE — Resolve all ten original RZ AI failures. From an isolated Python 3.13 environment installed with `python -m pip install -r requirements-dev.txt`, run `PYTHON_DOTENV_DISABLED=1 RZ_TEST_POSTGRES_URL="$test_dsn" python -m pytest -q --tb=short --disable-warnings tests` with a disposable loopback PostgreSQL 18 database. Output: 309 passed, 1 warning in 20.23s. No skips. Prior CI baseline: 299 passed, 10 failed.
 3. TODO — Complete Google sign-in button, callback, session, logout.
 4. TODO — Complete MFA UI, challenge issuance, verification rate limiting, no premature session.
 5. TODO — Secure owner linking by verified stable subject after existing credentials and MFA; no email-only linking.
