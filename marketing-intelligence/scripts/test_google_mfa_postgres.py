@@ -85,6 +85,22 @@ def run():
           patch.object(auth.google_verify, 'exchange', side_effect=signed_exchange),
           TestClient(auth.app, base_url=ORIGIN, follow_redirects=False) as client):
         assert 'data-google-enabled="1"' in client.get('/').text
+        assert client.post('/v1/auth/mfa/enroll', headers=HEADERS).status_code == 401
+        credentials = {'email': 'password-fixture@example.invalid', 'password': 'synthetic-password-registration'}
+        assert client.post('/v1/auth/register', json={**credentials, 'email': auth.activation.OWNER},
+                           headers=HEADERS).status_code == 409
+        assert client.post('/v1/auth/register', json=credentials, headers=HEADERS).status_code == 201
+        assert client.post('/v1/auth/login', json=credentials, headers=HEADERS).status_code == 200
+        assert client.get('/v1/auth/me').json()['email'] == credentials['email']
+        assert client.post('/v1/auth/logout', headers=HEADERS).status_code == 200
+
+        expired_start = client.get('/oauth/google/start')
+        state = client.cookies.get(auth.GOOGLE_STATE)
+        with psycopg.connect() as conn:
+            conn.execute("UPDATE auth_oidc_attempts SET expires_at=now()-interval '1 second' WHERE state_hash=%s",
+                         (auth.digest(state),))
+        assert google_callback(client, expired_start.headers['location'], 'fixture').status_code == 400
+        assert auth.COOKIE not in client.cookies
         assert google_login(client, 'fixture').headers['location'] == '/'
         user_id = client.get('/v1/auth/me').json()['id']
         assert 'id="sign-out"' in client.get('/').text
@@ -106,6 +122,15 @@ def run():
         assert auth.COOKIE not in client.cookies
         assert client.get('/v1/auth/me').status_code == 401
         assert 'id="mfa"' in client.get('/?mfa=verify').text
+        challenge = client.cookies.get(auth.CHALLENGE)
+        with psycopg.connect() as conn:
+            conn.execute("UPDATE auth_login_challenges SET expires_at=now()-interval '1 second' WHERE challenge_hash=%s",
+                         (auth.digest(challenge),))
+        assert client.post('/v1/auth/mfa/verify', json={'code': pyotp.TOTP(secret).now()},
+                           headers=HEADERS).status_code == 401
+        assert client.get('/v1/auth/me').status_code == 401
+
+        assert google_login(client, 'fixture').headers['location'] == '/?mfa=verify'
         challenge = client.cookies.get(auth.CHALLENGE)
         assert client.post('/v1/auth/mfa/enroll', headers=HEADERS).status_code == 403
         result = client.post('/v1/auth/mfa/verify', json={'code': pyotp.TOTP(secret).now()}, headers=HEADERS)
@@ -138,6 +163,26 @@ def run():
                 'INSERT INTO auth_mfa(user_id,encrypted_secret,key_version,confirmed_at) VALUES (%s,%s,1,now())',
                 (owner_id, auth.activation.seal(owner_secret, auth.activation.MFA_LABEL)),
             )
+
+        # An enrollment challenge issued before confirmation cannot replace a
+        # confirmed factor. Also exercise the persistence guard directly.
+        with fixture_db() as conn:
+            stale_enrollment = auth.activation.create_challenge(conn, owner_id, owner_enrollment=True)
+        with psycopg.connect() as conn:
+            before = conn.execute(
+                'SELECT encrypted_secret,confirmed_at,last_step FROM auth_mfa WHERE user_id=%s',
+                (owner_id,),
+            ).fetchone()
+        assert client.post('/v1/auth/mfa/enroll', headers={
+            **HEADERS, 'Cookie': f'{auth.CHALLENGE}={stale_enrollment}',
+        }).status_code == 403
+        with fixture_db() as conn:
+            auth.activation.enroll(conn, owner_id)
+            after = conn.execute(
+                'SELECT encrypted_secret,confirmed_at,last_step FROM auth_mfa WHERE user_id=%s',
+                (owner_id,),
+            ).fetchone()
+            assert after == before
 
         start = client.get('/oauth/google/start')
         assert google_callback(client, start.headers['location'], 'owner').status_code == 400
@@ -195,6 +240,8 @@ def run():
         assert google_login(client, 'owner').headers['location'] == '/?mfa=verify'
         assert client.get('/v1/auth/me').status_code == 401
     print('PASS: Google callback, MFA gating, one-use challenge, account rate limit, and logout')
+    print('PASS: password registration and login work with the owner registration restriction')
+    print('PASS: missing enrollment proof, confirmed factor replacement, and expired OAuth/MFA state rejected')
     print('PASS: owner linking requires password and fresh MFA, preserves the session, and uses the verified subject')
 
 

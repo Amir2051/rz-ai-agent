@@ -151,17 +151,15 @@ def register(payload: dict, request: Request):
     if os.getenv('MI_REGISTRATION_ENABLED') != '1':
         raise HTTPException(404, 'Registration not available')
     origin(request)
-    payload = Registration(**payload)
-    email = payload.email.strip().lower()
+    registration = Registration(**payload)
+    email = registration.email.strip().lower()
     if '@' not in email:
         raise HTTPException(422, 'Invalid email')
-    secret_hash = hasher.hash(payload.password)
-    if attempt.owner_session_hash is not None:
-        return _complete_owner_link(attempt.owner_session_hash, subject, email)
+    secret_hash = hasher.hash(registration.password)
     try:
         with db('marketing_registration') as conn:
             user_id = customer_registration.provision_password(conn, email, secret_hash)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(409, 'Account cannot be created') from None
     return {'created': True, 'user': user_id}
 
@@ -176,7 +174,7 @@ def login(payload: Credentials, request: Request, response: Response):
     with db() as conn:
         row = conn.execute('SELECT id::text,email,password_hash FROM auth_users WHERE email=%s AND disabled_at IS NULL', (email,)).fetchone()
         try:
-            valid = hasher.verify(row[2] if row else DUMMY, payload.password)
+            valid: bool = hasher.verify(row[2] if row else DUMMY, payload.password)
         except VerificationError:
             valid = False
         if not row or not valid:
@@ -355,7 +353,7 @@ def google_link_start(payload: OwnerLinkProof, request: Request, response: Respo
             (user['id'], activation.OWNER),
         ).fetchone()
         try:
-            valid_password = hasher.verify(row[0] if row else DUMMY, payload.password)
+            valid_password: bool = hasher.verify(row[0] if row else DUMMY, payload.password)
         except VerificationError:
             valid_password = False
         if not row or not valid_password:
