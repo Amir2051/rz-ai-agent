@@ -5,6 +5,8 @@ tenant-bound AEAD labels. No secret value is logged or returned except the
 one-time MFA provisioning URI and one-time recovery codes.
 """
 import base64, hashlib, json, os, secrets
+from typing import NamedTuple
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from auth_service import mfa
 from auth_service.identity_policy import OWNER
@@ -41,10 +43,19 @@ def unseal(blob, label):
     return AESGCM(_key()).decrypt(blob[:12], blob[12:], label).decode()
 
 
-def create_oidc_attempt(conn, state, nonce, verifier):
+class OidcAttempt(NamedTuple):
+    nonce: str
+    verifier: str
+    owner_session_hash: str | None
+
+
+def create_oidc_attempt(conn, state, nonce, verifier, *, owner_session_hash=None):
     if not all(isinstance(x, str) and 20 <= len(x) <= 256 for x in (state, nonce, verifier)):
         raise ValueError('Invalid OIDC attempt')
-    payload = seal(json.dumps({'nonce': nonce, 'verifier': verifier}, separators=(',', ':')), OIDC_LABEL)
+    values = {'nonce': nonce, 'verifier': verifier}
+    if owner_session_hash is not None:
+        values['owner_session_hash'] = owner_session_hash
+    payload = seal(json.dumps(values, separators=(',', ':')), OIDC_LABEL)
     conn.execute(
         'INSERT INTO auth_oidc_attempts(state_hash,nonce_hash,encrypted_verifier,expires_at) '
         'VALUES (%s,%s,%s,now()+interval \'10 minutes\')',
@@ -68,7 +79,7 @@ def consume_oidc_attempt(conn, state):
         return None
     if digest(values['nonce']) != row[0]:
         return None
-    return values['nonce'], values['verifier']
+    return OidcAttempt(values['nonce'], values['verifier'], values.get('owner_session_hash'))
 
 
 def create_challenge(conn, user_id, owner_enrollment=False):

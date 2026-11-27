@@ -32,3 +32,18 @@ def provision_password(conn,email,password_hash):
     conn.execute("INSERT INTO organization_members(organization_id,user_id,role) VALUES (%s,%s,'owner')",(org,user))
     conn.execute("INSERT INTO workspaces(id,organization_id,name) VALUES (%s,%s,'My workspace')",(workspace,org))
     return user
+
+
+def link_owner(conn, user_id, subject, email):
+    """Persist a verified Google subject for the already authenticated owner."""
+    if email != OWNER or not subject:
+        raise ValueError('Identity not eligible')
+    linked = conn.execute(
+        """INSERT INTO auth_external_identities(provider,subject,user_id)
+           SELECT 'google',%s,id FROM auth_users
+           WHERE id=%s AND email=%s AND disabled_at IS NULL
+           ON CONFLICT DO NOTHING RETURNING user_id""",
+        (subject, user_id, OWNER),
+    ).fetchone()
+    if not linked:
+        raise ValueError('Identity already linked or account unavailable')

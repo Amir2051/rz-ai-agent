@@ -115,12 +115,21 @@ async def security(request, call_next):
 @app.get('/', response_class=HTMLResponse)
 def home(request: Request):
     try:
-        current_user(request)
+        user = current_user(request)
     except HTTPException as e:
         if e.status_code == 401:
-            return (ROOT / 'control-center/login.html').read_text().replace('data-google-enabled="0"', 'data-google-enabled="1"' if os.getenv('MI_LOGIN_ENABLED') == '1' and os.getenv('MI_REGISTRATION_ENABLED') == '1' and os.getenv('MI_GOOGLE_CLIENT_JSON') else 'data-google-enabled="0"')
+            return (ROOT / 'control-center/login.html').read_text().replace('data-google-enabled="0"', 'data-google-enabled="1"' if _google_available() else 'data-google-enabled="0"')
         raise
-    return (ROOT / 'control-center/index.html').read_text()
+    dashboard = (ROOT / 'control-center/index.html').read_text()
+    if user['email'].lower() == activation.OWNER and _google_available():
+        with db('marketing_registration') as conn:
+            linked = conn.execute(
+                "SELECT 1 FROM auth_external_identities WHERE provider='google' AND user_id=%s",
+                (user['id'],),
+            ).fetchone()
+        element = 'google-linked' if linked else 'google-link'
+        dashboard = dashboard.replace(f'id="{element}" hidden', f'id="{element}"', 1)
+    return dashboard
 
 
 def _issue_session(conn, user_id, response):
@@ -147,6 +156,8 @@ def register(payload: dict, request: Request):
     if '@' not in email:
         raise HTTPException(422, 'Invalid email')
     secret_hash = hasher.hash(payload.password)
+    if attempt.owner_session_hash is not None:
+        return _complete_owner_link(attempt.owner_session_hash, subject, email)
     try:
         with db('marketing_registration') as conn:
             user_id = customer_registration.provision_password(conn, email, secret_hash)
@@ -292,28 +303,101 @@ def logout_all(request: Request, response: Response, user=Depends(current_user))
     return {'authenticated': False}
 
 
-@app.get('/oauth/google/start')
-def google_start():
+def _google_available():
+    return bool(os.getenv('MI_LOGIN_ENABLED') == '1'
+                and os.getenv('MI_REGISTRATION_ENABLED') == '1'
+                and os.getenv('MI_GOOGLE_CLIENT_JSON'))
+
+
+def _google_config():
     if os.getenv('MI_LOGIN_ENABLED') != '1' or os.getenv('MI_REGISTRATION_ENABLED') != '1':
         raise HTTPException(503, 'Google sign-in not activated')
     path = os.getenv('MI_GOOGLE_CLIENT_JSON', '')
     if not path:
         raise HTTPException(503, 'Google sign-in not configured')
     try:
-        config = google_login.config(path)
-        prepared = google_login.prepare(config['client_id'])
-        with db() as conn:
-            activation.create_oidc_attempt(conn, prepared['state'], prepared['nonce'], prepared['verifier'])
-    except (ValueError, OSError):
+        return google_login.config(path)
+    except (ValueError, OSError, KeyError, TypeError):
         raise HTTPException(503, 'Google sign-in not configured') from None
-    redirect = RedirectResponse(prepared['url'], status_code=303)
-    redirect.set_cookie(GOOGLE_STATE, prepared['state'], max_age=600,
+
+
+def _google_state_cookie(response, state):
+    response.set_cookie(GOOGLE_STATE, state, max_age=600,
                         secure=True, httponly=True, samesite='lax', path='/')
+
+
+@app.get('/oauth/google/start')
+def google_start():
+    prepared = google_login.prepare(_google_config()['client_id'])
+    with db() as conn:
+        activation.create_oidc_attempt(conn, prepared['state'], prepared['nonce'], prepared['verifier'])
+    redirect = RedirectResponse(prepared['url'], status_code=303)
+    _google_state_cookie(redirect, prepared['state'])
+    return redirect
+
+
+class OwnerLinkProof(BaseModel):
+    password: str = Field(min_length=12, max_length=256)
+    code: str = Field(pattern=r'^[0-9]{6}$')
+
+
+@app.post('/v1/auth/google/link')
+def google_link_start(payload: OwnerLinkProof, request: Request, response: Response,
+                      user=Depends(current_user)):
+    origin(request)
+    if user['email'].lower() != activation.OWNER:
+        raise HTTPException(403, 'Owner account required')
+    prepared = google_login.prepare(_google_config()['client_id'])
+    throttle(activation.OWNER)
+    with db() as conn:
+        row = conn.execute(
+            'SELECT password_hash FROM auth_users WHERE id=%s AND email=%s AND disabled_at IS NULL',
+            (user['id'], activation.OWNER),
+        ).fetchone()
+        try:
+            valid_password = hasher.verify(row[0] if row else DUMMY, payload.password)
+        except VerificationError:
+            valid_password = False
+        if not row or not valid_password:
+            raise HTTPException(401, 'Account verification failed')
+        allowed = _mfa_attempt_allowed(conn, user['id'])
+        if allowed and activation.verify(conn, user['id'], payload.code):
+            activation.create_oidc_attempt(
+                conn, prepared['state'], prepared['nonce'], prepared['verifier'],
+                owner_session_hash=digest(request.cookies[COOKIE]),
+            )
+            _google_state_cookie(response, prepared['state'])
+            return {'authorization_url': prepared['url']}
+    if not allowed:
+        raise HTTPException(429, 'Too many MFA attempts', headers={'Retry-After': '900'})
+    raise HTTPException(401, 'Account verification failed')
+
+
+def _complete_owner_link(session_hash, subject, email):
+    try:
+        with db() as conn:
+            # Lock the live session until the link commits, so concurrent logout
+            # and linking cannot both proceed using a revoked session.
+            row = conn.execute(
+                """UPDATE auth_sessions SET last_seen_at=now()
+                   WHERE token_hash=%s AND expires_at>now()
+                     AND GREATEST(last_seen_at,created_at)>now()-interval '30 minutes'
+                   RETURNING user_id::text""",
+                (session_hash,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(401, 'Sign in required')
+            conn.execute('SET LOCAL ROLE marketing_registration')
+            customer_registration.link_owner(conn, row[0], subject, email)
+    except ValueError:
+        raise HTTPException(400, 'Identity cannot be linked') from None
+    redirect = RedirectResponse('/', status_code=303)
+    _clear_cookie(redirect, GOOGLE_STATE)
     return redirect
 
 
 @app.get('/oauth/google/callback')
-def google_callback(request: Request, response: Response):
+def google_callback(request: Request):
     if os.getenv('MI_LOGIN_ENABLED') != '1' or os.getenv('MI_REGISTRATION_ENABLED') != '1':
         raise HTTPException(503, 'Google sign-in not activated')
     q = request.query_params
@@ -323,21 +407,21 @@ def google_callback(request: Request, response: Response):
     browser_state = request.cookies.get(GOOGLE_STATE, '')
     if not state or not code or not browser_state or not hmac.compare_digest(state.encode(), browser_state.encode()):
         raise HTTPException(400, 'Invalid authorization state')
-    path = os.getenv('MI_GOOGLE_CLIENT_JSON', '')
-    if not path:
-        raise HTTPException(503, 'Google sign-in not configured')
-    try:
-        config = google_login.config(path)
-    except (ValueError, OSError):
-        raise HTTPException(503, 'Google sign-in not configured') from None
+    config = _google_config()
     with db() as conn:
         attempt = activation.consume_oidc_attempt(conn, state)
     if not attempt:
         raise HTTPException(400, 'Invalid authorization state')
+    if attempt.owner_session_hash is not None:
+        session = request.cookies.get(COOKIE, '')
+        if not session or not hmac.compare_digest(digest(session), attempt.owner_session_hash):
+            raise HTTPException(401, 'Sign in required')
     try:
-        subject, email = google_verify.exchange(code, attempt[1], attempt[0], config, allow_owner=True)
+        subject, email = google_verify.exchange(code, attempt.verifier, attempt.nonce, config, allow_owner=True)
     except Exception:
         raise HTTPException(400, 'Google token exchange failed') from None
+    if attempt.owner_session_hash is not None:
+        return _complete_owner_link(attempt.owner_session_hash, subject, email)
     try:
         with db('marketing_registration') as conn:
             user_id = customer_registration.provision(conn, subject, email, hasher.hash(secrets.token_urlsafe(32)))

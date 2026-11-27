@@ -47,24 +47,28 @@ def run():
         assert generated_challenge == expected_verifier_challenge
         now = int(time.time())
         claims = dict(iss='https://accounts.google.com', aud=CLIENT_ID,
-                      sub='synthetic-' + code, email=code + '@example.invalid',
-                      email_verified=True, nonce=nonce, iat=now, exp=now + 60)
+                      sub='synthetic-' + code,
+                      email=auth.activation.OWNER if code in {'owner', 'unverified'} else code + '@example.invalid',
+                      email_verified=code != 'unverified', nonce=nonce, iat=now, exp=now + 60)
         token = jwt.encode({'alg': 'RS256'}, claims, key).decode()
         return auth.google_verify.verify_token(
             token, key.as_dict(is_private=False), config['client_id'], nonce,
             allow_owner=allow_owner,
         )
 
-    def google_login(client, code):
+    def google_callback(client, url, code):
         nonlocal expected_nonce, expected_verifier_challenge
-        start = client.get('/oauth/google/start')
-        assert start.status_code == 303
-        qs = parse_qs(urlsplit(start.headers['location']).query)
+        qs = parse_qs(urlsplit(url).query)
         expected_nonce, = qs['nonce']
         expected_verifier_challenge, = qs['code_challenge']
         assert qs['code_challenge_method'] == ['S256']
         assert client.cookies.get(auth.GOOGLE_STATE) == qs['state'][0]
-        result = client.get('/oauth/google/callback', params={'state': qs['state'][0], 'code': code})
+        return client.get('/oauth/google/callback', params={'state': qs['state'][0], 'code': code})
+
+    def google_login(client, code):
+        start = client.get('/oauth/google/start')
+        assert start.status_code == 303
+        result = google_callback(client, start.headers['location'], code)
         assert result.status_code == 303
         assert auth.GOOGLE_STATE not in client.cookies
         return result
@@ -84,6 +88,9 @@ def run():
         assert google_login(client, 'fixture').headers['location'] == '/'
         user_id = client.get('/v1/auth/me').json()['id']
         assert 'id="sign-out"' in client.get('/').text
+        assert 'id="google-link" hidden' in client.get('/').text
+        sample = {'password': 'fixture-password', 'code': '000000'}
+        assert client.post('/v1/auth/google/link', json=sample, headers=HEADERS).status_code == 403
         old_session = client.cookies.get(auth.COOKIE)
         assert client.post('/v1/auth/logout', headers=HEADERS).status_code == 200
         assert client.get('/v1/auth/me', headers={'Cookie': f'{auth.COOKIE}={old_session}'}).status_code == 401
@@ -118,7 +125,78 @@ def run():
         limited = client.post('/v1/auth/mfa/verify', json={'code': 'invalid'}, headers=HEADERS)
         assert limited.status_code == 429 and limited.headers['retry-after'] == '900'
         assert client.get('/v1/auth/me').status_code == 401
+        assert client.post('/v1/auth/google/link', json=sample, headers=HEADERS).status_code == 401
+
+        owner_secret = pyotp.random_base32()
+        password = 'synthetic-account-password'
+        with psycopg.connect() as conn:
+            owner_id, = conn.execute(
+                'INSERT INTO auth_users(email,password_hash) VALUES (%s,%s) RETURNING id',
+                (auth.activation.OWNER, auth.hasher.hash(password)),
+            ).fetchone()
+            conn.execute(
+                'INSERT INTO auth_mfa(user_id,encrypted_secret,key_version,confirmed_at) VALUES (%s,%s,1,now())',
+                (owner_id, auth.activation.seal(owner_secret, auth.activation.MFA_LABEL)),
+            )
+
+        start = client.get('/oauth/google/start')
+        assert google_callback(client, start.headers['location'], 'owner').status_code == 400
+        assert auth.COOKIE not in client.cookies
+
+        assert client.post('/v1/auth/login', json={
+            'email': auth.activation.OWNER, 'password': password,
+        }, headers=HEADERS).json()['mfa_required']
+        step_time = int(time.time()) // 30 * 30
+        totp = pyotp.TOTP(owner_secret)
+        assert client.post('/v1/auth/mfa/verify', json={'code': totp.at(step_time - 30)},
+                           headers=HEADERS).status_code == 200
+        assert 'id="google-link" hidden' not in client.get('/').text
+        mismatch = auth.google_login.prepare(CLIENT_ID)
+        with fixture_db() as conn:
+            auth.activation.create_oidc_attempt(
+                conn, mismatch['state'], mismatch['nonce'], mismatch['verifier'],
+                owner_session_hash=auth.digest('different-session'),
+            )
+        client.cookies.delete(auth.GOOGLE_STATE)
+        client.cookies.set(auth.GOOGLE_STATE, mismatch['state'])
+        assert google_callback(client, mismatch['url'], 'owner').status_code == 401
+        client.cookies.delete(auth.GOOGLE_STATE)
+
+        link_path = '/v1/auth/google/link'
+        assert client.post(link_path, json=sample, headers=HEADERS).status_code == 401
+        assert client.post(link_path, json={'password': password, 'code': totp.at(step_time - 30)},
+                           headers=HEADERS).status_code == 401
+        proof = {'password': password, 'code': totp.at(step_time)}
+        assert client.post(link_path, json=proof).status_code == 403
+        link = client.post(link_path, json=proof, headers=HEADERS)
+        assert link.status_code == 200
+        assert google_callback(client, link.json()['authorization_url'], 'unverified').status_code == 400
+        with psycopg.connect() as conn:
+            assert conn.execute('SELECT 1 FROM auth_external_identities WHERE user_id=%s',
+                                (owner_id,)).fetchone() is None
+        link = client.post(link_path, json={'password': password, 'code': totp.at(step_time + 30)},
+                           headers=HEADERS)
+        assert link.status_code == 200
+        url = link.json()['authorization_url']
+        link_state = client.cookies.get(auth.GOOGLE_STATE)
+        session = client.cookies.get(auth.COOKIE)
+        result = google_callback(client, url, 'owner')
+        assert result.status_code == 303
+        assert result.headers['location'] == '/'
+        assert 'id="google-linked" hidden' not in client.get('/').text
+        with psycopg.connect() as conn:
+            assert conn.execute("SELECT subject FROM auth_external_identities WHERE user_id=%s",
+                                (owner_id,)).fetchone() == ('synthetic-owner',)
+        assert client.cookies.get(auth.COOKIE) == session
+        client.cookies.set(auth.GOOGLE_STATE, link_state)
+        assert google_callback(client, url, 'owner').status_code == 400
+        client.cookies.delete(auth.GOOGLE_STATE)
+        assert client.post('/v1/auth/logout', headers=HEADERS).status_code == 200
+        assert google_login(client, 'owner').headers['location'] == '/?mfa=verify'
+        assert client.get('/v1/auth/me').status_code == 401
     print('PASS: Google callback, MFA gating, one-use challenge, account rate limit, and logout')
+    print('PASS: owner linking requires password and fresh MFA, preserves the session, and uses the verified subject')
+
 
 
 if __name__ == '__main__':

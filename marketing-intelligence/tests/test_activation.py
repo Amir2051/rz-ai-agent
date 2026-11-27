@@ -51,7 +51,7 @@ class Activation(unittest.TestCase):
         blob = activation.seal(json.dumps({'nonce': nonce, 'verifier': verifier}), activation.OIDC_LABEL)
         conn = FakeConn({'UPDATE auth_oidc_attempts': (activation.digest(nonce), blob)})
         got = activation.consume_oidc_attempt(conn, 'synthetic-state-value')
-        self.assertEqual(got, (nonce, verifier))
+        self.assertEqual(got, activation.OidcAttempt(nonce, verifier, None))
         conn.rows = {}
         self.assertIsNone(activation.consume_oidc_attempt(conn, 'synthetic-state-value'))
 
