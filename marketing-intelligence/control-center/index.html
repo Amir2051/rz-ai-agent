@@ -40,28 +40,65 @@ header{flex-direction:row;align-items:flex-start;margin-bottom:22px}.analytics-t
 @media(max-width:480px){.analytics-toolbar label{flex:1 1 125px}.analytics-toolbar label:nth-child(2){order:3;flex-basis:100%}
 .analytics-plot{padding:15px}.analytics-kpi{padding:14px}.analytics-plot canvas{height:180px}}
 
-.channel-workspace{display:grid;gap:22px;max-width:1280px}
-.channel-hero{padding:clamp(18px,4vw,38px);border:1px solid #294e4b;border-radius:20px;background:radial-gradient(ellipse at 70% 0%,#19443d 0,transparent 66%),#121e2a;display:flex;justify-content:space-between;align-items:end;gap:24px;flex-wrap:wrap}
-.channel-hero h2{font-size:clamp(25px,4vw,38px);letter-spacing:-.045em;color:#e9fff7;line-height:1.15;margin-bottom:8px}
-.channel-controls{display:flex;flex-wrap:wrap;align-items:end;gap:10px}
+:root{color-scheme:light;--surface:#fffcf5;--stroke:#ded9ca;--text:#222a24;--subtle:#535d53;--accent:#234a36}
+body{background:#f6f2e9;color:var(--text)}
+aside{position:static;width:auto;display:flex;align-items:center;gap:23px;flex-wrap:wrap;padding:12px max(21px,calc((100vw - 1180px)/2));background:#faf7f0;border:0;border-bottom:1px solid var(--stroke)}
+aside h2{display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:19px;padding:0}
+aside h2 span{display:grid;place-items:center;background:#234a36;color:#fff;border-radius:8px;width:29px;height:29px;font:20px/1 Georgia,serif}
+nav{display:flex;align-items:center;gap:1px;min-width:0;flex-wrap:wrap}
+nav button{width:auto;white-space:nowrap;padding:5px 8px;margin:0;color:#4c554b;border-radius:5px;font-size:12px}
+nav button.active,nav button:hover{background:#e5ede1;color:#234a36}
+main{margin:0 auto;width:min(1180px,calc(100% - 52px));padding:20px 0 40px}
+main>header{margin-bottom:17px;border:0;padding:0}
+main>header h1{font:500 38px/1.12 Georgia,serif;letter-spacing:-.04em}
+body.weekly main>header{justify-content:flex-end;margin-bottom:0}
+body.weekly main>header>div{display:none}
+#sign-out{padding:5px 9px}
+.card{border-radius:10px}
+.action{background:#234a36;border-color:#234a36;color:white;font-weight:650;padding:7px 11px;border-radius:7px}
+.action:hover{background:#163825}
+button:focus-visible,select:focus-visible,summary:focus-visible{outline-color:#a14a2f}
+select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
+.line{border-color:var(--stroke)}
+.muted,.analytics-toolbar label{color:var(--subtle)}
+.segment,.analytics-kpi{background:#fffaf0;border-color:var(--stroke)}
+.segment button[aria-pressed=true],.analytics-kpi[aria-pressed=true]{background:#e5ede1;color:#234a36}
+.analytics-note[data-error=true]{color:#803d2e}.analytics-table summary{color:#234a36}
+.channel-workspace{display:grid;gap:13px}
+.channel-hero{padding:6px 0 22px;border-bottom:1px solid var(--stroke);display:flex;justify-content:space-between;align-items:end;gap:20px;flex-wrap:wrap}
+.channel-hero h2{font:500 clamp(36px,6vw,69px)/1.04 Georgia,serif;letter-spacing:-.055em;margin:5px 0 8px}
+.channel-hero p:first-child{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.channel-controls{display:flex;flex-wrap:wrap;align-items:end;gap:9px}
 .channel-controls label{display:grid;gap:4px;font-size:12px;font-weight:650}
-.channel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.channel-card,.channel-panel{padding:18px;min-width:0}
-.channel-card h3,.channel-panel h3{font-size:16px}
-.channel-card p{overflow-wrap:anywhere;margin-top:5px}
-.channel-metrics{display:flex;gap:20px;flex-wrap:wrap;margin:13px 0 5px}
-.channel-metrics dt{color:var(--subtle);font-size:12px}
-.channel-metrics dd{margin:0;font-size:27px;font-weight:650;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.channel-status{font-size:12px;color:#a7ddc9}
-.channel-columns{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px}
-.channel-panel>*+*{margin-top:12px}
-.channel-brief{border-left:2px solid var(--accent);padding-left:13px;overflow-wrap:anywhere}
+.channel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.channel-score{display:grid;justify-items:start;gap:4px;text-align:left;padding:12px 14px;min-width:0;border:1px solid var(--stroke);border-radius:9px;background:#fffcf5}
+.channel-score[aria-pressed=true]{border-color:#41634b;box-shadow:inset 0 -3px #41634b;background:#eef2e8}
+.channel-score span{font-size:12px;font-weight:730}
+.channel-score strong{font:500 29px/1.1 Georgia,serif;letter-spacing:-.04em}
+.channel-score>*{overflow-wrap:anywhere}
+.channel-status{font-size:12px;color:#505e51}
+.channel-columns{display:grid;grid-template-columns:minmax(0,1.28fr) minmax(0,1fr);gap:13px;align-items:start}
+.channel-panel{padding:15px 18px;min-width:0}
+.channel-panel h3{font:500 25px/1.1 Georgia,serif;letter-spacing:-.035em}
+.channel-panel>*+*{margin-top:9px}
+.channel-panel-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:7px}
+.channel-panel:last-child{grid-column:1/-1}
+.channel-mia{background:#edf0e7;border-color:#d6ddcc}
+.channel-brief{border-left:3px solid #638067;padding-left:9px;overflow-wrap:anywhere}
+.channel-mia details{margin-top:8px;color:#415143}
+.channel-mia summary{cursor:pointer;font-weight:650}
 .channel-activity{padding:0;margin-left:0;list-style:none}
-.channel-activity li{display:grid;gap:3px;padding:10px 0;border-top:1px solid var(--stroke);overflow-wrap:anywhere}
+.channel-activity li{display:grid;grid-template-columns:125px minmax(0,1fr);gap:9px;padding:8px 0;border-top:1px solid var(--stroke);align-items:start;overflow-wrap:anywhere}
 .channel-activity time{color:var(--subtle);font-size:12px}
-@media(max-width:900px){.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:570px){.channel-grid,.channel-columns{grid-template-columns:1fr}.channel-controls{width:100%}.channel-controls label{flex:1 1 140px}}
-</style><aside><h2>SafeNestT <span style="color:#6edbc6">MI</span></h2><small>Marketing Intelligence · RZ AI</small><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
+.channel-badge{justify-self:start;display:inline-flex;background:#e8efe3;color:#254833;font-size:11px;font-weight:720;border-radius:100px;padding:3px 8px}
+.channel-badge[data-tone=review]{background:#fae8d9;color:#743c2d}
+.channel-filters{display:flex;gap:5px}
+.channel-filters button{border:1px solid #dbd7c8;border-radius:30px;padding:4px 9px;background:transparent;color:#515d51;font-size:12px}
+.channel-filters button[aria-pressed=true]{background:#e6eee2;border-color:#709177;color:#1f4630;font-weight:700}
+.channel-facts>div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--stroke)}
+.channel-facts dd{margin:0;font-weight:720;text-align:right}
+@media(max-width:750px){aside{padding:8px 15px;gap:8px}aside nav{width:100%}main{width:calc(100% - 30px)}.channel-columns{grid-template-columns:1fr}.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.channel-panel{padding:14px}.channel-activity li{grid-template-columns:92px minmax(0,1fr)}}
+</style><aside><h2><span aria-hidden="true">S</span> SafeNestT</h2><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
 <section id="google-link" hidden class="card">
 <h3>Link your Google account</h3>
 <form id="google-link-form">
@@ -73,8 +110,9 @@ header{flex-direction:row;align-items:flex-start;margin-bottom:22px}.analytics-t
 </form>
 <p id="google-link-status" role="status"></p>
 </section><section id="view"></section><section id="draft-panel" class="card" style="margin-top:16px" hidden></section></main><script>
-const pages=['Command center','Connected accounts','Campaigns','Analytics','Content calendar','Leads & CRM','RZ AI Director','Automations','Budget & approvals','Audit & security'];const row=(a,b)=>`<div class="line"><span>${a}</span><span class="muted">${b}</span></div>`;const card=(a,b)=>`<div class="card"><h3>${a}</h3>${b}</div>`;function show(i) {
+const pages=['Weekly Review','Connected accounts','Campaigns','Analytics','Content calendar','Leads & CRM','MIA','Automations','Budget & approvals','Audit & security'];const row=(a,b)=>`<div class="line"><span>${a}</span><span class="muted">${b}</span></div>`;const card=(a,b)=>`<div class="card"><h3>${a}</h3>${b}</div>`;function show(i) {
   document.getElementById('title').textContent=pages[i];
+  document.body.classList.toggle('weekly',i===0||i===6);
   document.querySelectorAll('nav button').forEach((button,j)=>{
     button.classList.toggle('active',i===j);
     if(i===j) button.setAttribute('aria-current','page');
@@ -355,8 +393,8 @@ function drawGoogleTrend(canvas, points, metric, realtime, start, end) {
   const step = max <= 4 ? 1 : Math.ceil(max / 4);
   const ceiling = step * 4;
   ctx.font = '11px system-ui';
-  ctx.fillStyle = '#a6b6ca';
-  ctx.strokeStyle = '#273748';
+  ctx.fillStyle = '#535d53';
+  ctx.strokeStyle = '#ded9ca';
   const format = new Intl.NumberFormat(undefined,{notation:'compact'});
   for (let i = 0; i <= 4; i++) {
     const y = bottom - i * plotHeight / 4;
@@ -610,7 +648,7 @@ async function openChannelWorkspace() {
   const hero = el('div');
   hero.className = 'channel-hero';
   const heading = el('div');
-  heading.append(el('h2','Channel performance'),el('p','Last 7 completed days across your connected channels'));
+  heading.append(el('p','Last 7 completed days'),el('h2','Weekly marketing review'),el('p','Review results, see what needs attention, and prepare your next move.'));
   const controls = el('div');
   controls.className = 'channel-controls';
   const label = el('label','Workspace');
@@ -628,9 +666,14 @@ async function openChannelWorkspace() {
   cards.className = 'channel-grid';
   const columns = el('div');
   columns.className = 'channel-columns';
+  const details = el('section');
+  details.className = 'card channel-panel channel-evidence';
+  details.setAttribute('aria-live','polite');
+  details.hidden = true;
+  cards.setAttribute('aria-label','Weekly channel scorecard');
 
   const director = el('section');
-  director.className = 'card channel-panel';
+  director.className = 'card channel-panel channel-mia';
   const form = el('form');
   form.className = 'channel-controls';
   const objectiveLabel = el('label','Brief type');
@@ -646,17 +689,36 @@ async function openChannelWorkspace() {
   run.className = 'action';
   run.disabled = true;
   form.append(objectiveLabel,run);
-  const aiStatus = el('p','Qwen 2.5 3B · Local draft for review');
+  const aiStatus = el('p','Draft for review · Uses available Google channel reports');
   aiStatus.setAttribute('role','status');
   const result = el('div');
-  director.append(el('h3','Marketing Director'),form,aiStatus,result);
+  director.append(el('h3','MIA brief'),form,aiStatus,result);
 
   const activity = el('section');
   activity.className = 'card channel-panel';
   const events = el('ul');
   events.className = 'channel-activity';
-  activity.append(el('h3','Recent activity'),events);
-  columns.append(director,activity);
+  const activityHeader = el('div');
+  activityHeader.className = 'channel-panel-head';
+  const filters = el('div');
+  filters.className = 'channel-filters';
+  filters.setAttribute('role','group');
+  filters.setAttribute('aria-label','Filter activity');
+  let filter = 'all';
+  for (const [key, name] of [['all','All'],['verified','Verified'],['review','Needs review']]) {
+    const button = el('button',name);
+    button.type = 'button';
+    button.setAttribute('aria-pressed',String(key==='all'));
+    button.onclick = () => {
+      filter = key;
+      for (const item of filters.children) item.setAttribute('aria-pressed',String(item===button));
+      drawActivity();
+    };
+    filters.append(button);
+  }
+  activityHeader.append(el('h3','Activity & follow-up'),filters);
+  activity.append(activityHeader,events);
+  columns.append(details,director,activity);
   container.replaceChildren(hero,status,cards,columns);
 
   let revision = 0;
@@ -669,63 +731,123 @@ async function openChannelWorkspace() {
     button.onclick = () => nav(index);
     return button;
   }
-  function drawCards(data) {
-    const rendered = [];
-    for (const [source, title] of Object.entries(channelLabels)) {
-      const record = data.reports.find(item=>item.source===source);
-      const card = el('section');
-      card.className = 'card channel-card';
-      card.append(el('h3',title));
-      if (!record) {
-        card.append(el('p','No saved connection.'),link('Connect account',1));
-      } else {
-        card.append(el('p',record.name));
-        if (record.status==='available') {
-          const metrics = el('dl');
-          metrics.className = 'channel-metrics';
-          for (const [metric,value] of Object.entries(record.metrics)) {
+  let records = [];
+  let checks = [];
+  let historyLoading = true;
+  let healthLoading = true;
+  let historyError = false;
+  let selectedSource = 'search-console';
+  const labels = {...channelLabels, hubspot:'HubSpot'};
+  const numbers = new Intl.NumberFormat();
+  function drawCards(data, crm) {
+    const reports = data.reports;
+    const visible = [];
+    checks = [];
+    for (const [source,title] of Object.entries(labels)) {
+      const record = source==='hubspot' ? crm : reports.find(item=>item.source===source);
+      const state = record?.status || 'unsaved';
+      const isCRM = source==='hubspot';
+      const description = state==='available' ? (isCRM ? 'Live CRM records' : record.name)
+        : state==='empty' ? 'Provider returned no rows for this period.'
+        : state==='unsaved' ? 'No saved connection.'
+        : state==='setup' ? 'HubSpot OAuth setup required.'
+        : ({reconnect:'Authorization expired or was revoked.', 'api-disabled':'Provider API is disabled.', permission:'Account lacks access to this report.'}[record?.detail] || 'Provider report unavailable.');
+      const metrics = Object.entries(record?.metrics || {});
+      const button = el('button');
+      button.type = 'button';
+      button.className = 'channel-score';
+      button.setAttribute('aria-controls','review-source-details');
+      button.append(el('span',title),el('strong',metrics.length ? numbers.format(metrics[0][1])
+        : ({empty:'No rows',unsaved:'Connect',setup:'Setup required'}[state] || 'Unavailable')),
+        el('small',metrics.length ? metrics[0][0] : description));
+      visible.push(button);
+      function showDetails() {
+        selectedSource = source;
+        for (const item of visible) item.setAttribute('aria-pressed',String(item===button));
+        const head = el('div');
+        head.className = 'channel-panel-head';
+        const badge = el('span',state==='available' ? 'Report available' : 'Needs review');
+        badge.className = 'channel-badge';
+        badge.dataset.tone = state==='available' ? 'verified' : 'review';
+        head.append(el('h3',title),badge);
+        details.replaceChildren(head,el('p',description));
+        if (metrics.length) {
+          const list = el('dl');
+          list.className = 'channel-facts';
+          for (const [key,value] of metrics) {
             const pair = el('div');
-            pair.append(el('dt',metric),el('dd',new Intl.NumberFormat().format(value)));
-            metrics.append(pair);
+            pair.append(el('dt',key),el('dd',numbers.format(value)));
+            list.append(pair);
           }
-          card.append(metrics,el('p',record.start+' to '+record.end),link('Open Analytics',3));
-        } else if (record.status==='empty') {
-          card.append(el('p','Provider returned no rows for this period.'),link('Open Analytics',3));
-        } else {
-          const reasons = {reconnect:'Authorization expired or was revoked.', 'api-disabled':'Provider API is disabled.', permission:'Account lacks access to this report.'};
-          card.append(el('p',reasons[record.detail]||'Provider report unavailable.'),link('Manage connection',1));
+          details.append(list);
         }
+        if (isCRM && record?.additional) details.append(el('p','More records are available in HubSpot.'));
+        if (record?.start) details.append(el('p',record.start+' to '+record.end));
+        const canView = state==='available'||state==='empty';
+        details.append(link(canView ? (isCRM?'Open Leads & CRM':'Open Analytics') : 'Manage connection',canView ? (isCRM?5:3) : 1));
+        details.hidden = false;
       }
-      rendered.push(card);
+      button.onclick = showDetails;
+      checks.push({label:title,note:state==='available' ? (isCRM ? 'CRM records loaded' : 'Report loaded') : description,
+        kind:state==='available' ? 'verified' : 'review'});
+      if (source===selectedSource) button.dataset.selected='true';
     }
-    cards.replaceChildren(...rendered);
+    cards.replaceChildren(...visible);
+    (visible.find(button=>button.dataset.selected)||visible[0]).click();
   }
-  async function loadActivity(base, version) {
-    events.replaceChildren(el('li','Loading recorded activity…'));
-    const [tools,drafts] = await Promise.allSettled([
-      requestJSON(base+'/activity'),requestJSON(base+'/drafts'),
-    ]);
-    if (!container.isConnected || version!==revision) return;
-    const rows=[];
-    if (tools.status==='fulfilled') for (const item of tools.value) {
-      rows.push({label:item.tool+' · '+item.outcome, date:item.created_at});
-    }
-    if (drafts.status==='fulfilled') for (const item of drafts.value) {
-      rows.push({label:(item.payload?.title || item.kind)+' · Draft saved', date:item.created_at});
-    }
-    rows.sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
-    events.replaceChildren(...rows.slice(0,8).map(item=>{
-      const li = el('li',item.label);
+  details.id = 'review-source-details';
+  function drawActivity() {
+    const rows = [...checks,...records].filter(row=>filter==='all'||row.kind===filter);
+    events.replaceChildren(...rows.slice(0,10).map(item=>{
+      const li = el('li');
+      const badge = el('span',item.kind==='verified'?'Verified':'Needs review');
+      badge.className = 'channel-badge';
+      badge.dataset.tone = item.kind;
+      const text = el('div');
+      text.append(el('strong',item.label));
+      if (item.note) text.append(el('p',item.note));
       const date = new Date(item.date);
       if (!Number.isNaN(date.valueOf())) {
         const time = el('time',date.toLocaleString());
         time.dateTime = date.toISOString();
-        li.append(time);
+        text.append(time);
       }
+      li.append(badge,text);
       return li;
     }));
-    if (!rows.length && tools.status==='fulfilled' && drafts.status==='fulfilled') events.append(el('li','No activity recorded for this workspace.'));
-    if (tools.status==='rejected' || drafts.status==='rejected') events.append(el('li','Some activity could not be loaded.'));
+    if (historyLoading||healthLoading) events.append(el('li','Checking recent activity and sources…'));
+    else if (!rows.length) events.append(el('li','No matching activity.'));
+    if (historyError) events.append(el('li','Some recorded activity could not be loaded.'));
+  }
+  async function loadActivity(base, version) {
+    const [tools,drafts] = await Promise.allSettled([
+      requestJSON(base+'/activity'),requestJSON(base+'/drafts'),
+    ]);
+    if (!container.isConnected || version!==revision) return;
+    if (tools.status==='fulfilled') for (const item of tools.value) {
+      const outcome = String(item.outcome);
+      records.push({label:item.tool,note:outcome,date:item.created_at,
+        kind:/^(ok|success|succeeded|allowed|completed)$/i.test(outcome)?'verified':'review'});
+    }
+    if (drafts.status==='fulfilled') for (const item of drafts.value) {
+      records.push({label:item.payload?.title || item.kind,note:'Draft saved',date:item.created_at,kind:'verified'});
+    }
+    records.sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
+    historyLoading = false;
+    historyError = tools.status==='rejected'||drafts.status==='rejected';
+    drawActivity();
+  }
+  async function loadHubSpot(base) {
+    try {
+      const config = await requestJSON(base+'/hubspot');
+      if (!config.configured) return {status:'setup'};
+      if (!config.portal_id) return {status:'unsaved'};
+      const result = await requestJSON(base+'/hubspot/summary');
+      return {status:'available',metrics:{'Contacts on first page':result.contacts.rows.length,
+        'Deals on first page':result.deals.rows.length},additional:result.contacts.has_more||result.deals.has_more};
+    } catch {
+      return {status:'unavailable'};
+    }
   }
   async function load() {
     if (!workspace.value) return;
@@ -734,21 +856,32 @@ async function openChannelWorkspace() {
     refresh.disabled = true;
     run.disabled = true;
     result.replaceChildren();
-    aiStatus.textContent = 'Qwen 2.5 3B · Local draft for review';
+    aiStatus.textContent = 'Draft for review · Uses available Google channel reports';
     cards.replaceChildren();
+    details.hidden = true;
+    records = [];
+    checks = [];
+    historyLoading = true;
+    healthLoading = true;
+    historyError = false;
+    drawActivity();
     status.textContent = 'Checking live provider reports…';
     const activityRequest = loadActivity(base, version);
     try {
-      const data = await requestJSON(base+'/channel-overview');
+      const [google,crm] = await Promise.allSettled([requestJSON(base+'/channel-overview'),loadHubSpot(base)]);
       if (version!==revision || !container.isConnected) return;
-      drawCards(data);
-      const count = data.reports.filter(item=>item.status==='available').length;
-      status.textContent = count+' of 3 channels returned metrics · '+data.properties+' saved properties or channels';
+      const crmRecord = crm.status==='fulfilled'?crm.value:{status:'unavailable'};
+      const data = google.status==='fulfilled'?google.value:{reports:Object.keys(channelLabels).map(source=>({source,status:'unavailable'}))};
+      drawCards(data,crmRecord);
+      const count = data.reports.filter(item=>item.status==='available').length + Number(crmRecord.status==='available');
+      status.textContent = count+' of 4 sources returned data';
       status.className = 'channel-status';
-    } catch(error) {
-      if (version===revision) status.textContent = error.message;
     } finally {
-      if (version===revision) refresh.disabled = run.disabled = false;
+      if (version===revision) {
+        healthLoading = false;
+        drawActivity();
+        refresh.disabled = run.disabled = false;
+      }
     }
     await activityRequest;
   }
@@ -775,10 +908,12 @@ async function openChannelWorkspace() {
         const totals = Object.entries(report.metrics).map(([name,value])=>name+' '+new Intl.NumberFormat().format(value));
         evidence.append(el('li',channelLabels[report.source]+' · '+report.start+' to '+report.end+' · '+totals.join(', ')));
       }
-      result.append(draft,el('h4','Provider evidence'),evidence);
+      const disclosure = el('details');
+      disclosure.append(el('summary','See provider evidence'),evidence);
+      result.append(draft,disclosure);
       if (brief.missing_sources.length) result.append(el('p','Missing metrics from '+brief.missing_sources.map(key=>channelLabels[key]).join(', ')+'.'));
     } catch(error) {
-      if (version===revision) aiStatus.textContent = error.message;
+      if (version===revision) aiStatus.textContent = error.message.replace(/Local Qwen/g,'MIA').replace(/The Marketing Director/g,'MIA');
     } finally {
       if (version===revision) run.disabled = false;
     }
