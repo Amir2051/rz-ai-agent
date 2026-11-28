@@ -1,5 +1,7 @@
 import base64
 import json
+
+import httpx
 from urllib.parse import parse_qs, urlsplit
 
 from contextlib import contextmanager
@@ -102,3 +104,33 @@ def test_native_google_scopes_replay_tenant_and_selection(monkeypatch, tmp_path)
     assert client.post(selection,headers=HEADERS,json={'grant':grant,'properties':['properties/200']}).status_code == 404
     assert client.get(resource).json() == [{'source':'ga4','id':'properties/200','name':'Second property'}]
     assert b'synthetic-refresh-token' not in (tmp_path/'auth.sqlite3').read_bytes()
+
+    def report(_client, source, prop, refresh, config):
+        assert (source, prop, refresh, config['client_id']) == (
+            'ga4', 'properties/200', 'synthetic-refresh-token', 'fixture-client')
+        return {'metrics': {'Sessions': 4}}
+    monkeypatch.setattr(google_sources, '_report', report)
+    assert client.get(resource+'/ga4/report', params={'property_id':'properties/100'}).status_code == 404
+    assert client.get(resource+'/ga4/report', params={'property_id':'properties/200'}).json() == {'metrics': {'Sessions': 4}}
+
+
+def test_google_reports_use_provider_api_and_refresh_token():
+    def respond(request):
+        if request.url.host == 'oauth2.googleapis.com':
+            assert parse_qs(request.content.decode())['grant_type'] == ['refresh_token']
+            return httpx.Response(200, json={'access_token':'fixture'})
+        assert request.headers['authorization'] == 'Bearer fixture'
+        if request.url.host == 'analyticsdata.googleapis.com':
+            assert request.url.path == '/v1beta/properties/200:runReport'
+            return httpx.Response(200, json={'rows':[{'metricValues':[{'value':'5'},{'value':'9'}]}]})
+        assert request.url.host == 'www.googleapis.com'
+        assert 'sc-domain%3Aexample.invalid' in str(request.url)
+        assert request.url.path.endswith('/searchAnalytics/query')
+        return httpx.Response(200, json={'rows':[{'clicks':2,'impressions':8}]})
+
+    config = {'client_id':'fixture-client','client_secret':'fixture-only'}
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        ga = google_sources._report(client,'ga4','properties/200','fixture',config)
+        gsc = google_sources._report(client,'search-console','sc-domain:example.invalid','fixture',config)
+        assert ga['metrics'] == {'Sessions':5,'Views':9}
+        assert gsc['metrics'] == {'Clicks':2,'Impressions':8}

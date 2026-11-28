@@ -1,17 +1,19 @@
 """Read-only Google data grants, separate from Google identity sign-in."""
 
 import base64
+from datetime import date, timedelta
 from contextlib import contextmanager
 import hashlib
 import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import stat
 from time import time
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -121,6 +123,55 @@ def _properties(client, source, token):
     raise ValueError('Google property pagination exceeded the request limit')
 
 
+def _report(client, source, property_id, refresh, config):
+    response = client.post(TOKEN_URL, data={
+        'refresh_token': refresh, 'client_id': config['client_id'],
+        'client_secret': config['client_secret'], 'grant_type': 'refresh_token',
+    })
+    response.raise_for_status()
+    token = response.json()['access_token']
+    headers = {'Authorization': 'Bearer ' + token}
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=27)
+    if source == 'ga4':
+        if not re.fullmatch(r'properties/[0-9]+', property_id):
+            raise ValueError('Invalid GA4 property')
+        response = client.post(
+            'https://analyticsdata.googleapis.com/v1beta/' + property_id + ':runReport',
+            headers=headers, json={
+                'dateRanges': [{'startDate': str(start), 'endDate': str(end)}],
+                'metrics': [{'name': 'sessions'}, {'name': 'screenPageViews'}],
+            })
+        response.raise_for_status()
+        rows = response.json().get('rows', [])
+        labels = ('Sessions', 'Views')
+        values = [int(metric['value']) for metric in rows[0]['metricValues']] if rows else []
+    else:
+        response = client.post(
+            'https://www.googleapis.com/webmasters/v3/sites/' + quote(property_id, safe='') + '/searchAnalytics/query',
+            headers=headers, json={'startDate': str(start), 'endDate': str(end), 'rowLimit': 1})
+        response.raise_for_status()
+        rows = response.json().get('rows', [])
+        labels = ('Clicks', 'Impressions')
+        values = [rows[0]['clicks'], rows[0]['impressions']] if rows else []
+    return {'start': str(start), 'end': str(end), 'metrics': dict(zip(labels, values))}
+
+
+def _google_error(error):
+    try:
+        details = error.response.json().get('error', {})
+    except (ValueError, AttributeError):
+        details = {}
+    if details == 'invalid_grant' or error.response.status_code == 401:
+        return 'reconnect'
+    if isinstance(details, dict) and (
+        any(isinstance(item, dict) and item.get('reason') in ('SERVICE_DISABLED', 'accessNotConfigured')
+            for item in details.get('details', []) + details.get('errors', []))
+    ):
+        return 'api-disabled'
+    return 'permission' if error.response.status_code == 403 else 'failed'
+
+
 def exchange(source, code, verifier, config):
     with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
         response = client.post(TOKEN_URL, data={
@@ -168,6 +219,28 @@ def routes(db, current_user, origin, session_cookie):
             rows = conn.execute("""SELECT source,property_id,name FROM connections WHERE workspace=?
                 ORDER BY source,name,property_id""", (str(workspace),)).fetchall()
         return [{'source': source, 'id': prop, 'name': name} for source,prop,name in rows]
+
+    @router.get('/v1/workspaces/{workspace}/google-sources/{source}/report')
+    def report(workspace: UUID, source: str, property_id: str, user=Depends(current_user)):
+        if source not in GOOGLE_SCOPES or len(property_id) > 2048:
+            raise HTTPException(404, 'Property not connected')
+        require_manager(workspace, user)
+        workspace_id = str(workspace)
+        with store() as conn:
+            row = conn.execute("""SELECT credential FROM connections
+                WHERE workspace=? AND source=? AND property_id=?""",
+                               (workspace_id, source, property_id)).fetchone()
+        if not row:
+            raise HTTPException(404, 'Property not connected')
+        label = json.dumps([workspace_id, source, property_id], separators=(',', ':'))
+        try:
+            refresh = reveal(row[0], label)
+            with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
+                return _report(client, source, property_id, refresh, _google_config())
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(502, _google_error(exc)) from None
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise HTTPException(502, 'failed') from None
 
     @router.post('/v1/workspaces/{workspace}/google-sources/{source}/start')
     def start(workspace: UUID, source: str, request: Request, user=Depends(current_user)):
@@ -226,6 +299,8 @@ def routes(db, current_user, origin, session_cookie):
                 conn.execute('INSERT INTO pending VALUES (?,?,?,?,?)',
                     (activation.digest(grant),'select',sid,int(time())+EXPIRY,
                      protect(payload,activation.digest(grant))))
+        except httpx.HTTPStatusError as exc:
+            return back(_google_error(exc))
         except (HTTPException,httpx.HTTPError,ValueError,KeyError,TypeError):
             return back('failed')
         # The grant is session-bound. A fragment keeps it out of HTTP requests.
