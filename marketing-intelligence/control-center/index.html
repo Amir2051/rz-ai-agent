@@ -139,6 +139,23 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 .analytics-source select,.analytics-toolbar select{max-width:100%}
 @media(max-width:750px){nav button{min-height:38px}.action,.connection-secondary,.connections-workspaces button,.connection-report-link{min-height:40px}.channel-filters button{min-height:34px}main>header h1{font-size:32px}}
 @media(max-width:360px){.connection-card-details .connection-property-list{grid-template-columns:1fr}}
+
+.choice-cards{min-width:0;max-width:100%}
+.choice-cards>strong{display:block;margin-bottom:5px;color:var(--subtle);font-size:12px}
+.choice-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:7px}
+.choice-options button{display:grid;align-content:center;gap:2px;min-width:0;min-height:48px;text-align:left;overflow-wrap:anywhere;border:1px solid var(--stroke);border-radius:8px;background:#fffaf0;padding:8px 11px;font-weight:650}
+.choice-options button[aria-pressed=true]{background:#e6eee2;border-color:#54755b;box-shadow:inset 0 -2px #54755b;color:#234a36}
+.choice-options button:not(:disabled):hover{border-color:#54755b}
+.choice-options button small{font-weight:400}
+.choice-cards-compact .choice-options{display:flex;flex-wrap:wrap}
+.choice-cards-compact .choice-options button{min-height:40px}
+.analytics-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end}
+.analytics-toolbar>.choice-cards{grid-column:1/-1}
+.analytics-toolbar>.choice-cards:last-of-type{grid-column:1}
+.analytics-toolbar>.action{margin-left:0}
+#draft-panel .choice-cards,#hubspot-crm .choice-cards{margin:9px 0}
+#hubspot-crm>.choice-cards+.action{margin-bottom:8px}
+@media(max-width:630px){.analytics-toolbar{grid-template-columns:minmax(0,1fr)}.analytics-toolbar>.choice-cards:last-of-type{grid-column:1/-1}.analytics-toolbar>.action{justify-self:start}}
 </style><aside><h2><span aria-hidden="true">S</span> SafeNestT</h2><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
 <section id="google-link" hidden class="card">
 <h3>Link your Google account</h3>
@@ -183,11 +200,59 @@ async function requestJSON(path,options={}){const r=await fetch(path,{...options
   const field=Array.isArray(data?.detail) ? data.detail[0]?.loc?.at(-1) : '';
   throw new Error(detail || (r.status===422 && field ? 'Check the '+field+' field.' : 'Request failed ('+r.status+')'));
 }return r.json()}
-async function draftPanel(i){panel.replaceChildren();panel.hidden=true;const kind=({2:'campaign',4:'content',5:'lead',7:'automation'})[i];if(!kind)return;panel.hidden=false;const heading=document.createElement('h3');heading.textContent='Saved '+kind+' drafts';panel.append(heading);const status=document.createElement('p');status.setAttribute('role','status');panel.append(status);const form=document.createElement('form');const workspace=document.createElement('select');workspace.required=true;workspace.setAttribute('aria-label','Workspace');form.append(workspace);const fields={};function field(name,label,type='text'){const l=document.createElement('label');l.style.display='block';l.style.margin='12px 0';l.textContent=label+' ';const input=document.createElement('input');input.type=type;input.required=true;l.append(input);form.append(l);fields[name]=input;return input}field('title','Title');if(kind==='campaign'){field('channel','Channel').value='facebook';field('objective','Objective').value='awareness';field('start','Start','date');field('end','End','date')}if(kind==='content'){field('channel','Channel').value='facebook';field('body','Content');field('planned_at','Planned local time','datetime-local')}if(kind==='automation'){field('task','Task').value='report';field('planned_at','Planned local time','datetime-local')}const save=document.createElement('button');save.type='submit';save.className='action';save.textContent='Save draft';save.disabled=true;form.append(save);panel.append(form);const records=document.createElement('div');panel.append(records);async function refresh(){records.replaceChildren();const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts');for(const r of rows.filter(r=>r.kind===kind)){const p=document.createElement('p');p.textContent=r.payload.title+' — draft — '+r.created_at;records.append(p)}if(!records.childNodes.length)records.textContent='No saved drafts.'}try{const ws=await requestJSON('/v1/workspaces');if(!form.isConnected)return;for(const w of ws){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;workspace.append(o)}if(!ws.length){status.textContent='No authorized workspace available.';return}await refresh();save.disabled=false;workspace.onchange=()=>refresh().catch(e=>{status.textContent=e.message});form.onsubmit=async e=>{e.preventDefault();save.disabled=true;const payload={kind};for(const [k,v] of Object.entries(fields))payload[k]=k==='planned_at'?new Date(v.value).toISOString():v.value;try{await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});status.textContent='Draft saved. External execution disabled.';await refresh()}catch(e){status.textContent=e.message}finally{save.disabled=false}}}catch(e){status.textContent=e.message}}
+function choiceCards(label, {compact = false} = {}) {
+  const root = connectionElement('div');
+  root.className = 'choice-cards'+(compact ? ' choice-cards-compact' : '');
+  root.setAttribute('role','group');
+  root.setAttribute('aria-label',label);
+  const title = connectionElement('strong',label);
+  const options = connectionElement('div');
+  options.className = 'choice-options';
+  root.append(title,options);
+  root.hidden = true;
+  let selected = '';
+  let disabled = false;
+  const control = {
+    root,
+    onchange: null,
+    get value() { return selected; },
+    set value(value) {
+      const matching = Array.from(options.children).find(item=>item.dataset.value===String(value));
+      selected = matching ? String(value) : '';
+      for (const button of options.children) button.setAttribute('aria-pressed',String(button===matching));
+    },
+    set disabled(value) {
+      disabled = Boolean(value);
+      for (const button of options.children) button.disabled = disabled;
+    },
+    setOptions(items, preferred = selected) {
+      const buttons = items.map(({id,name,note})=>{
+        const button = connectionElement('button');
+        button.type = 'button';
+        button.dataset.value = String(id);
+        button.disabled = disabled;
+        button.append(connectionElement('span',name));
+        if (note) button.append(connectionElement('small',note));
+        button.onclick = () => {
+          if (button.dataset.value===selected) return;
+          control.value = button.dataset.value;
+          control.onchange?.();
+        };
+        return button;
+      });
+      options.replaceChildren(...buttons);
+      root.hidden = !buttons.length;
+      control.value = buttons.some(button=>button.dataset.value===String(preferred)) ? preferred : buttons[0]?.dataset.value;
+    },
+  };
+  return control;
+}
+
+async function draftPanel(i){panel.replaceChildren();panel.hidden=true;const kind=({2:'campaign',4:'content',5:'lead',7:'automation'})[i];if(!kind)return;panel.hidden=false;const heading=document.createElement('h3');heading.textContent='Saved '+kind+' drafts';panel.append(heading);const status=document.createElement('p');status.setAttribute('role','status');panel.append(status);const form=document.createElement('form');const workspace=choiceCards('Workspace',{compact:true});form.append(workspace.root);const fields={};function field(name,label,type='text'){const l=document.createElement('label');l.style.display='block';l.style.margin='12px 0';l.textContent=label+' ';const input=document.createElement('input');input.type=type;input.required=true;l.append(input);form.append(l);fields[name]=input;return input}field('title','Title');if(kind==='campaign'){field('channel','Channel').value='facebook';field('objective','Objective').value='awareness';field('start','Start','date');field('end','End','date')}if(kind==='content'){field('channel','Channel').value='facebook';field('body','Content');field('planned_at','Planned local time','datetime-local')}if(kind==='automation'){field('task','Task').value='report';field('planned_at','Planned local time','datetime-local')}const save=document.createElement('button');save.type='submit';save.className='action';save.textContent='Save draft';save.disabled=true;form.append(save);panel.append(form);const records=document.createElement('div');panel.append(records);async function refresh(){records.replaceChildren();const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts');for(const r of rows.filter(r=>r.kind===kind)){const p=document.createElement('p');p.textContent=r.payload.title+' — draft — '+r.created_at;records.append(p)}if(!records.childNodes.length)records.textContent='No saved drafts.'}try{const ws=await requestJSON('/v1/workspaces');if(!form.isConnected)return;workspace.setOptions(ws);if(!ws.length){status.textContent='No authorized workspace available.';return}await refresh();save.disabled=false;workspace.onchange=()=>refresh().catch(e=>{status.textContent=e.message});form.onsubmit=async e=>{e.preventDefault();save.disabled=true;const payload={kind};for(const [k,v] of Object.entries(fields))payload[k]=k==='planned_at'?new Date(v.value).toISOString():v.value;try{await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});status.textContent='Draft saved. External execution disabled.';await refresh()}catch(e){status.textContent=e.message}finally{save.disabled=false}}}catch(e){status.textContent=e.message}}
 document.querySelectorAll('nav button').forEach((button,i)=>button.addEventListener('click',()=>draftPanel(i)));
 
 const activityPanel=document.createElement('section');activityPanel.hidden=true;activityPanel.className='card';document.getElementById('draft-panel').after(activityPanel);
-async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=document.createElement('select');ws.setAttribute('aria-label','Activity workspace');activityPanel.append(ws);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{for(const w of await requestJSON('/v1/workspaces')){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;ws.append(o)}ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No workspace is available for this account.'}catch(e){records.textContent=e.message}}
+async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=choiceCards('Activity workspace',{compact:true});activityPanel.append(ws.root);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.root.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{ws.setOptions(await requestJSON('/v1/workspaces'));ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No workspace is available for this account.'}catch(e){records.textContent=e.message}}
 document.querySelectorAll('nav button').forEach((b,i)=>b.addEventListener('click',()=>{activityPanel.hidden=i!==9;if(i===9)openActivity()}));
 
 const sourceErrors = {
@@ -514,15 +579,14 @@ function hubspotURL(workspace) {
 async function openHubSpotCRM() {
   const panel = document.getElementById('hubspot-crm');
   if (!panel) return;
-  const workspace = connectionElement('select');
-  workspace.setAttribute('aria-label','CRM workspace');
+  const workspace = choiceCards('CRM workspace',{compact:true});
   const refresh = connectionElement('button','Refresh HubSpot data');
   refresh.type = 'button';
   refresh.disabled = true;
   const status = connectionElement('p','Reading workspaces…');
   status.setAttribute('role','status');
   const records = connectionElement('div');
-  panel.replaceChildren(connectionElement('h3','HubSpot CRM'), workspace, refresh, status, records);
+  panel.replaceChildren(connectionElement('h3','HubSpot CRM'), workspace.root, refresh, status, records);
   async function load() {
     const selected = workspace.value;
     records.replaceChildren();
@@ -564,11 +628,7 @@ async function openHubSpotCRM() {
   }
   workspace.onchange = refresh.onclick = load;
   try {
-    for (const item of await requestJSON('/v1/workspaces')) {
-      const option = connectionElement('option',item.name);
-      option.value = item.id;
-      workspace.append(option);
-    }
+    workspace.setOptions(await requestJSON('/v1/workspaces'));
     if (workspace.value) await load();
     else status.textContent = 'No workspace is available for this account.';
   } catch(error) {
@@ -627,22 +687,12 @@ async function openGoogleAnalytics() {
   const make = connectionElement;
   const controls = make('div');
   controls.className = 'card analytics-toolbar';
-  const select = (name,parent) => {
-    const label=make('label',name), input=make('select');
-    label.append(input);
-    parent.append(label);
-    return input;
-  };
-  const option = (input,label,value) => {
-    const element = make('option',label);
-    element.value=value;
-    input.append(element);
-  };
-  const workspace = select('Workspace',controls);
-  const property = select('Property or channel',controls);
-  const days = select('Date range',controls);
-  for (const value of [7,28,90]) option(days,'Last '+value+' days',value);
-  days.value='28';
+  const workspace = choiceCards('Workspace',{compact:true});
+  const channel = choiceCards('Channels');
+  const property = choiceCards('Properties and channels');
+  const days = choiceCards('Date range',{compact:true});
+  days.setOptions([7,28,90].map(id=>({id,name:'Last '+id+' days'})),28);
+  controls.append(workspace.root,channel.root,property.root,days.root);
   const refresh = make('button','Refresh');
   refresh.className='action';
   refresh.type='button';
@@ -799,27 +849,43 @@ async function openGoogleAnalytics() {
       }
     }
   }
+  function showChannel(preferredProperty) {
+    reset();
+    realtime=false;
+    metric='';
+    property.setOptions(properties.flatMap((item,index)=>item.source===channel.value
+      ? [{id:index,name:sourceDisplayName(item.source,item.name)}] : []),preferredProperty);
+    if (!property.value) {
+      feedback('No saved '+channelLabels[channel.value]+' connection. Open Connected accounts to add one.');
+      render();
+      return;
+    }
+    loadReport();
+  }
   async function listProperties(preferredProperty) {
     const current=++revision;
     reset();
     realtime=false;
     metric='';
     properties=[];
-    property.replaceChildren();
+    channel.setOptions([]);
+    property.setOptions([]);
     render();
-    feedback('Loading connected properties…');
+    feedback('Loading connected channels…');
     try {
       const base='/v1/workspaces/'+encodeURIComponent(workspace.value)+'/google-sources';
       const saved=await requestJSON(base);
       if (current!==revision || !panel.isConnected) return;
       properties=saved.slice().sort((a,b)=>Number(b.source==='search-console')-Number(a.source==='search-console') || a.name.localeCompare(b.name));
-      properties.forEach((item,index)=>option(property,sourceDisplayName(item.source,item.name),index));
-      const selected = properties.findIndex(item=>item.id===preferredProperty);
-      if (selected>=0) property.value=selected;
-      property.disabled=!properties.length;
-      if (!properties.length) feedback('No connected properties. Add a Google source in Connected accounts.');
-      render();
-      if (properties.length) await loadReport();
+      const preferredIndex = properties.findIndex(item=>item.id===preferredProperty);
+      const initialSource = properties[preferredIndex]?.source ?? properties[0]?.source;
+      const channels = Object.entries(channelLabels).map(([id,name])=>{
+        const count = properties.filter(item=>item.source===id).length;
+        return {id,name,note:count===0 ? 'Not connected' : count+' saved'};
+      });
+      channel.setOptions(channels,initialSource);
+      showChannel(preferredIndex);
+
     } catch(error) { if (current===revision) feedback(error.message,true); }
   }
   const chooseMode = selected => {
@@ -829,6 +895,7 @@ async function openGoogleAnalytics() {
     loadReport();
   };
   workspace.onchange=()=>listProperties();
+  channel.onchange=()=>showChannel();
   property.onchange=()=>{realtime=false;reset();loadReport();};
   days.onchange=()=>{reset();loadReport();};
   refresh.onclick=loadReport;
@@ -836,9 +903,9 @@ async function openGoogleAnalytics() {
   realtimeButton.onclick=()=>chooseMode(true);
   render();
   try {
-    for (const item of await requestJSON('/v1/workspaces')) option(workspace,item.name,item.id);
+    const workspaces = await requestJSON('/v1/workspaces');
     if (!panel.isConnected) return;
-    if (preferred && Array.from(workspace.options).some(item=>item.value===preferred.workspace)) workspace.value=preferred.workspace;
+    workspace.setOptions(workspaces,preferred?.workspace);
     if (workspace.value) await listProperties(preferred?.workspace===workspace.value ? preferred.property : undefined);
     else feedback('No workspace is available for this account.');
   } catch(error) { feedback(error.message,true); }
@@ -856,14 +923,12 @@ async function openChannelWorkspace() {
   heading.append(el('p','Last 7 completed days'),el('h1','Weekly marketing review'),el('p','Review results, see what needs attention, and prepare your next move.'));
   const controls = el('div');
   controls.className = 'channel-controls';
-  const label = el('label','Workspace');
-  const workspace = el('select');
+  const workspace = choiceCards('Workspace',{compact:true});
   const refresh = el('button','Refresh data');
   refresh.type = 'button';
   refresh.className = 'action';
   refresh.disabled = true;
-  label.append(workspace);
-  controls.append(label,refresh);
+  controls.append(workspace.root,refresh);
   hero.append(heading,controls);
   const status = el('p','Loading workspaces…');
   status.setAttribute('role','status');
@@ -881,19 +946,17 @@ async function openChannelWorkspace() {
   director.className = 'card channel-panel channel-mia';
   const form = el('form');
   form.className = 'channel-controls';
-  const objectiveLabel = el('label','Brief type');
-  const objective = el('select');
-  for (const [key, title] of [['summary','Performance summary'],['growth','Growth experiment'],['content','Content idea']]) {
-    const item = el('option',title);
-    item.value = key;
-    objective.append(item);
-  }
-  objectiveLabel.append(objective);
+  const objective = choiceCards('Brief type',{compact:true});
+  objective.setOptions([
+    {id:'summary',name:'Performance summary'},
+    {id:'growth',name:'Growth experiment'},
+    {id:'content',name:'Content idea'},
+  ]);
   const run = el('button','Generate brief');
   run.type = 'submit';
   run.className = 'action';
   run.disabled = true;
-  form.append(objectiveLabel,run);
+  form.append(objective.root,run);
   const aiStatus = el('p','Draft for review · Uses available Google channel reports');
   aiStatus.setAttribute('role','status');
   const result = el('div');
@@ -1124,11 +1187,7 @@ async function openChannelWorkspace() {
     }
   };
   try {
-    for (const value of await requestJSON('/v1/workspaces')) {
-      const option = el('option',value.name);
-      option.value = value.id;
-      workspace.append(option);
-    }
+    workspace.setOptions(await requestJSON('/v1/workspaces'));
     if (workspace.value) await load();
     else status.textContent = 'No workspace available for this account.';
   } catch(error) {
