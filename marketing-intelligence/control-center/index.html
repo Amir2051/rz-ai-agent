@@ -66,7 +66,7 @@ const activityPanel=document.createElement('section');activityPanel.hidden=true;
 async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=document.createElement('select');ws.setAttribute('aria-label','Activity workspace');activityPanel.append(ws);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{for(const w of await requestJSON('/v1/workspaces')){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;ws.append(o)}ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No authorized workspace.'}catch(e){records.textContent=e.message}}
 document.querySelectorAll('nav button').forEach((b,i)=>b.addEventListener('click',()=>{activityPanel.hidden=i!==9;if(i===9)openActivity()}));
 
-const connectionSources = [['ga4','Google Analytics 4'],['search-console','Google Search Console']];
+const connectionSources = [['ga4','Google Analytics 4'],['search-console','Google Search Console'],['youtube','YouTube']];
 const sourceErrors = {
   expired:'Start the connection again. The prior request expired or its session changed.',
   denied:'Google authorization was cancelled.',
@@ -111,7 +111,7 @@ async function openConnections() {
     rows.replaceChildren();
     for (const [id, name] of connectionSources) {
       const properties = connected.filter(item => item.source===id);
-      const line = connectionElement('p',name+': '+(properties.length ? properties.map(item=>item.name).join(', ') : 'No properties selected'));
+      const line = connectionElement('p',name+': '+(properties.length ? properties.map(item=>item.name).join(', ') : id==='youtube' ? 'No channels selected' : 'No properties selected'));
       rows.append(line);
     }
   }
@@ -130,7 +130,8 @@ async function openConnections() {
       const selection = await requestJSON('/v1/google-source-selection/'+encodeURIComponent(grant));
       workspaces.value = selection.workspace;
       workspaces.disabled = true;
-      choices.append(connectionElement('h4','Select '+selection.source+' properties'));
+      const resourceLabel = selection.source==='YouTube' ? 'channels' : 'properties';
+      choices.append(connectionElement('h4','Select '+selection.source+' '+resourceLabel));
       for (const property of selection.properties) {
         const label = connectionElement('label');
         label.style.display = 'block';
@@ -140,7 +141,7 @@ async function openConnections() {
         label.append(box,document.createTextNode(' '+property.name));
         choices.append(label);
       }
-      const save = connectionElement('button','Save selected properties');
+      const save = connectionElement('button','Save selected '+resourceLabel);
       save.className='action';
       choices.append(save);
       choices.onsubmit = async event => {
@@ -154,7 +155,7 @@ async function openConnections() {
             body:JSON.stringify({grant,properties})
           });
           pendingConnection = null;
-          connectionMessage = 'Saved '+result.connected+' properties.';
+          connectionMessage = 'Saved '+result.connected+' '+resourceLabel+'.';
           history.replaceState(null,'','/#connected');
           await openConnections();
         } catch(error) {
@@ -245,7 +246,7 @@ async function openGoogleAnalytics() {
     input.append(element);
   };
   const workspace = select('Workspace',controls);
-  const property = select('Google property',controls);
+  const property = select('Property or channel',controls);
   const days = select('Date range',controls);
   for (const value of [7,28,90]) option(days,'Last '+value+' days',value);
   days.value='28';
@@ -311,10 +312,10 @@ async function openGoogleAnalytics() {
   function render() {
     const item=properties[property.value];
     const isGA=item?.source==='ga4';
-    const labels=isGA ? (realtime ? ['Active users','Events'] : ['Sessions','Views']) : ['Impressions','Clicks'];
+    const labels=isGA ? (realtime ? ['Active users','Events'] : ['Sessions','Views']) : item?.source==='youtube' ? ['Views','Watch time (min)'] : ['Impressions','Clicks'];
     if (!labels.includes(metric)) metric=labels[0];
     name.textContent=item?.name || 'Google reporting';
-    description.textContent=item ? ((isGA ? 'Google Analytics 4' : 'Google Search Console')+' · '+(realtime ? 'Last 30 minutes · refreshes every minute' : 'Daily reporting')) : '';
+    description.textContent=item ? ((connectionSources.find(([id])=>id===item.source)?.[1] || 'Google')+' · '+(realtime ? 'Last 30 minutes · refreshes every minute' : 'Daily reporting')) : '';
     realtimeButton.hidden=!isGA;
     segment.hidden=!isGA;
     historyButton.setAttribute('aria-pressed',String(!realtime));

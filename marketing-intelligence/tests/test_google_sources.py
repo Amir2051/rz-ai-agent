@@ -143,3 +143,35 @@ def test_google_reports_use_provider_api_and_refresh_token():
         assert gsc['metrics'] == {'Clicks':2,'Impressions':8}
         realtime = google_sources._report(client,'ga4','properties/200','fixture',config,realtime=True)
         assert realtime == {'minutes':30,'metrics':{'Active users':2,'Events':7}}
+
+
+def test_youtube_discovery_and_reporting_use_authorized_channel():
+    channel = 'UC' + 'a' * 22
+    scopes = google_sources.GOOGLE_SCOPES['youtube']
+    consent = parse_qs(urlsplit(google_sources._authorize('fixture', scopes, 'state', 'verifier')).query)
+    assert set(consent['scope'][0].split()) == {
+        'https://www.googleapis.com/auth/youtube.readonly',
+        'https://www.googleapis.com/auth/yt-analytics.readonly',
+    }
+
+    def respond(request):
+        if request.url.host == 'oauth2.googleapis.com':
+            assert parse_qs(request.content.decode())['grant_type'] == ['refresh_token']
+            return httpx.Response(200, json={'access_token': 'fixture'})
+        assert request.headers['authorization'] == 'Bearer fixture'
+        if request.url.host == 'www.googleapis.com':
+            assert request.url.path == '/youtube/v3/channels'
+            assert request.url.params['mine'] == 'true'
+            return httpx.Response(200, json={'items': [{'id': channel, 'snippet': {'title': 'Fixture channel'}}]})
+        assert request.url.host == 'youtubeanalytics.googleapis.com'
+        assert request.url.path == '/v2/reports'
+        assert request.url.params['ids'] == 'channel==' + channel
+        assert request.url.params['dimensions'] == 'day'
+        return httpx.Response(200, json={'rows': [['2026-11-20', 3, 6], ['2026-11-21', 7, 16]]})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert google_sources._properties(client, 'youtube', 'fixture') == {channel: 'Fixture channel'}
+        report = google_sources._report(client, 'youtube', channel, 'fixture',
+                                        {'client_id': 'fixture', 'client_secret': 'fixture'}, series=True)
+    assert report['metrics'] == {'Views': 10, 'Watch time (min)': 22}
+    assert len(report['series']) == 2

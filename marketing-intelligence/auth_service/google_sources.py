@@ -28,8 +28,10 @@ STATE_COOKIE = '__Host-mi_google_source'
 GOOGLE_SCOPES = {
     'ga4': 'https://www.googleapis.com/auth/analytics.readonly',
     'search-console': 'https://www.googleapis.com/auth/webmasters.readonly',
+    'youtube': ('https://www.googleapis.com/auth/youtube.readonly '
+                'https://www.googleapis.com/auth/yt-analytics.readonly'),
 }
-NAMES = {'ga4': 'Google Analytics 4', 'search-console': 'Google Search Console'}
+NAMES = {'ga4': 'Google Analytics 4', 'search-console': 'Google Search Console', 'youtube': 'YouTube'}
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 EXPIRY = 600
 
@@ -104,6 +106,22 @@ def _properties(client, source, token):
                 found[value] = value
         return found
 
+    if source == 'youtube':
+        page = None
+        for _ in range(50):
+            params = {'part': 'snippet', 'mine': 'true', 'maxResults': 50}
+            if page:
+                params['pageToken'] = page
+            result = client.get('https://www.googleapis.com/youtube/v3/channels', params=params, headers=headers)
+            result.raise_for_status()
+            data = result.json()
+            for channel in data.get('items', []):
+                found[channel['id']] = channel['snippet']['title']
+            page = data.get('nextPageToken')
+            if not page:
+                return found
+        raise ValueError('YouTube channel pagination exceeded the request limit')
+
     page = None
     for _ in range(50):
         params = {'pageSize': 200}
@@ -145,6 +163,23 @@ def _report(client, source, property_id, refresh, config, *, realtime=False, ser
     headers = {'Authorization': 'Bearer ' + token}
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=days - 1)
+    if source == 'youtube':
+        if not re.fullmatch(r'UC[A-Za-z0-9_-]{22}', property_id) or realtime:
+            raise ValueError('Invalid YouTube report')
+        params = {'ids': 'channel==' + property_id, 'startDate': str(start), 'endDate': str(end),
+                  'metrics': 'views,estimatedMinutesWatched'}
+        if series:
+            params.update(dimensions='day', sort='day')
+        response = client.get('https://youtubeanalytics.googleapis.com/v2/reports', headers=headers, params=params)
+        response.raise_for_status()
+        rows = response.json().get('rows', [])
+        labels = ('Views', 'Watch time (min)')
+        offset = int(series)
+        totals = {label: sum(row[offset+i] for row in rows) for i, label in enumerate(labels)} if rows else {}
+        result = {'start': str(start), 'end': str(end), 'metrics': totals}
+        if series:
+            result['series'] = [{'time': row[0], **dict(zip(labels, row[1:]))} for row in rows]
+        return result
     if source == 'ga4':
         if not re.fullmatch(r'properties/[0-9]+', property_id):
             raise ValueError('Invalid GA4 property')
@@ -221,7 +256,7 @@ def exchange(source, code, verifier, config):
         })
         response.raise_for_status()
         response_data = response.json()
-        if set(response_data.get('scope', '').split()) != {GOOGLE_SCOPES[source]}:
+        if set(response_data.get('scope', '').split()) != set(GOOGLE_SCOPES[source].split()):
             raise ValueError('Expected exactly the provider read-only scope')
         refresh = response_data.get('refresh_token')
         if not isinstance(refresh, str) or not 1 <= len(refresh) <= 8192:
