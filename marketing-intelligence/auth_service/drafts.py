@@ -29,6 +29,9 @@ def build(workspace: UUID, data: DraftInput):
             if data.planned_at is None: raise ValueError()
             result=preview(Draft(w,data.channel,data.body,data.planned_at),allowed)
         elif data.kind=='lead': result=lead_preview(Lead(w,data.title,data.consent),allowed)
-        else: result=automation(w,data.task,data.planned_at,allowed)
+        else:
+            result=automation(w,data.task,data.planned_at,allowed)
+            if data.body.strip():
+                result['notes']=data.body.strip()
     except (ValueError,PermissionError): raise HTTPException(422,'Invalid draft fields') from None
     return {**result,'title':data.title,'external_execution':False}

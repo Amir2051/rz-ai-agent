@@ -179,12 +179,10 @@ def login(payload: Credentials, request: Request, response: Response):
             valid = False
         if not row or not valid:
             raise HTTPException(401, 'Invalid credentials')
-        if activation.confirmation_required(conn, row[0], row[1]):
-            owner_enrollment = (row[1].lower() == activation.OWNER
-                                and not activation.has_confirmed_mfa(conn, row[0]))
-            token = activation.create_challenge(conn, row[0], owner_enrollment=owner_enrollment)
-            _challenge(response, token)
-            return {'mfa_required': True, 'owner_enrollment': owner_enrollment}
+        if activation.has_confirmed_mfa(conn, row[0]):
+            _challenge(response, activation.create_challenge(conn, row[0]))
+            return {'mfa_required': True, 'owner_enrollment': False}
+        _clear_cookie(response, CHALLENGE)
         return _issue_session(conn, row[0], response)
 
 
@@ -394,8 +392,16 @@ def _complete_owner_link(session_hash, subject, email):
     return redirect
 
 
+from auth_service import google_sources
+
+_google_sources_router, _finish_google_source = google_sources.routes(db, current_user, origin, COOKIE)
+app.include_router(_google_sources_router)
+
+
 @app.get('/oauth/google/callback')
 def google_callback(request: Request):
+    if request.query_params.get('state', '').startswith(google_sources.STATE_PREFIX):
+        return _finish_google_source(request)
     if os.getenv('MI_LOGIN_ENABLED') != '1' or os.getenv('MI_REGISTRATION_ENABLED') != '1':
         raise HTTPException(503, 'Google sign-in not activated')
     q = request.query_params
@@ -427,7 +433,7 @@ def google_callback(request: Request):
         raise HTTPException(400, 'Identity not eligible') from None
     with db() as conn:
         redirect = RedirectResponse('/', status_code=303)
-        if activation.confirmation_required(conn, user_id, email):
+        if activation.has_confirmed_mfa(conn, user_id):
             redirect = RedirectResponse('/?mfa=verify', status_code=303)
             previous_session = request.cookies.get(COOKIE, '')
             if previous_session:
