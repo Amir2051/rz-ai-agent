@@ -392,8 +392,16 @@ def _complete_owner_link(session_hash, subject, email):
     return redirect
 
 
+from auth_service import google_sources
+
+_google_sources_router, _finish_google_source = google_sources.routes(db, current_user, origin, COOKIE)
+app.include_router(_google_sources_router)
+
+
 @app.get('/oauth/google/callback')
 def google_callback(request: Request):
+    if request.query_params.get('state', '').startswith(google_sources.STATE_PREFIX):
+        return _finish_google_source(request)
     if os.getenv('MI_LOGIN_ENABLED') != '1' or os.getenv('MI_REGISTRATION_ENABLED') != '1':
         raise HTTPException(503, 'Google sign-in not activated')
     q = request.query_params
