@@ -66,7 +66,7 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 .analytics-note[data-error=true]{color:#803d2e}.analytics-table summary{color:#234a36}
 .channel-workspace{display:grid;gap:13px}
 .channel-hero{padding:6px 0 22px;border-bottom:1px solid var(--stroke);display:flex;justify-content:space-between;align-items:end;gap:20px;flex-wrap:wrap}
-.channel-hero h2{font:500 clamp(36px,6vw,69px)/1.04 Georgia,serif;letter-spacing:-.055em;margin:5px 0 8px}
+.channel-hero h1{font:500 clamp(36px,6vw,69px)/1.04 Georgia,serif;letter-spacing:-.055em;margin:5px 0 8px}
 .channel-hero p:first-child{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .channel-controls{display:flex;flex-wrap:wrap;align-items:end;gap:9px}
 .channel-controls label{display:grid;gap:4px;font-size:12px;font-weight:650}
@@ -102,7 +102,7 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 .connections-page{display:grid;gap:16px}
 .connections-heading{padding:5px 0 22px;border-bottom:1px solid var(--stroke);margin:0;display:block}
 .connections-heading p:first-child{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-.connections-heading h2{font:500 clamp(36px,6vw,65px)/1.04 Georgia,serif;letter-spacing:-.05em;margin:5px 0 8px}
+.connections-heading h1{font:500 clamp(36px,6vw,65px)/1.04 Georgia,serif;letter-spacing:-.05em;margin:5px 0 8px}
 .connections-heading p:last-child{max-width:62ch}
 .connections-context{display:flex;align-items:center;flex-wrap:wrap;gap:9px;color:var(--subtle)}
 .connections-context strong{color:var(--text);font-size:12px}
@@ -128,6 +128,17 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 .connections-choices label{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--stroke);border-radius:6px;overflow-wrap:anywhere;cursor:pointer}
 .connections-choices input{margin:0;accent-color:#234a36}
 @media(max-width:630px){.connections-grid{grid-template-columns:1fr}.connection-card,.connections-selection{padding:14px}.connections-heading{padding-bottom:16px}}
+
+.channel-badge[data-tone=neutral]{background:#f0ede5;color:#514f45}
+.connection-card-details>p{margin-top:4px}
+.connection-card-details .connection-property-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:0;list-style:none;gap:5px;margin-top:9px}
+.connection-property-list li{min-width:0}
+.connection-report-link{display:block;width:100%;min-height:36px;text-align:left;border:1px solid var(--stroke);border-radius:6px;background:#f9f7ee;color:#234a36;padding:6px 7px;overflow-wrap:anywhere}
+.connection-report-link:hover{background:#e5ede1;border-color:#709177;text-decoration:underline}
+.connection-property-list small{display:block;padding:1px 7px}
+.analytics-source select,.analytics-toolbar select{max-width:100%}
+@media(max-width:750px){nav button{min-height:38px}.action,.connection-secondary,.connections-workspaces button,.connection-report-link{min-height:40px}.channel-filters button{min-height:34px}main>header h1{font-size:32px}}
+@media(max-width:360px){.connection-card-details .connection-property-list{grid-template-columns:1fr}}
 </style><aside><h2><span aria-hidden="true">S</span> SafeNestT</h2><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
 <section id="google-link" hidden class="card">
 <h3>Link your Google account</h3>
@@ -176,7 +187,7 @@ async function draftPanel(i){panel.replaceChildren();panel.hidden=true;const kin
 document.querySelectorAll('nav button').forEach((button,i)=>button.addEventListener('click',()=>draftPanel(i)));
 
 const activityPanel=document.createElement('section');activityPanel.hidden=true;activityPanel.className='card';document.getElementById('draft-panel').after(activityPanel);
-async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=document.createElement('select');ws.setAttribute('aria-label','Activity workspace');activityPanel.append(ws);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{for(const w of await requestJSON('/v1/workspaces')){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;ws.append(o)}ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No authorized workspace.'}catch(e){records.textContent=e.message}}
+async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=document.createElement('select');ws.setAttribute('aria-label','Activity workspace');activityPanel.append(ws);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{for(const w of await requestJSON('/v1/workspaces')){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;ws.append(o)}ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No workspace is available for this account.'}catch(e){records.textContent=e.message}}
 document.querySelectorAll('nav button').forEach((b,i)=>b.addEventListener('click',()=>{activityPanel.hidden=i!==9;if(i===9)openActivity()}));
 
 const sourceErrors = {
@@ -207,6 +218,14 @@ function connectionElement(tag, value) {
   return element;
 }
 
+const firebaseAccountSuffix = ' (Default Account for Firebase)';
+function sourceDisplayName(source, name) {
+  return source==='ga4' && name?.endsWith(firebaseAccountSuffix) && name.length>firebaseAccountSuffix.length
+    ? name.slice(0,-firebaseAccountSuffix.length)
+    : name;
+}
+
+let requestedAnalytics = null;
 let connectionWorkspace = '';
 
 async function openConnections() {
@@ -222,7 +241,7 @@ async function openConnections() {
   const heading = el('header');
   heading.className = 'connections-heading';
   heading.append(el('p','Read-only integrations'),
-    el('h2','Connected accounts'),
+    el('h1','Connected accounts'),
     el('p','Choose which Google properties, YouTube channels, or HubSpot account this workspace can read.'));
   const status = el('p',connectionMessage);
   status.className = 'connections-message';
@@ -263,7 +282,7 @@ async function openConnections() {
     mark.setAttribute('aria-hidden','true');
     const badge = el('span',info.label);
     badge.className = 'channel-badge';
-    if (info.state==='error'||info.state==='setup') badge.dataset.tone = 'review';
+    badge.dataset.tone = info.state==='error'||info.state==='setup' ? 'review' : info.state==='connected' ? 'verified' : 'neutral';
     head.append(mark,badge);
 
     const title = el('div');
@@ -271,10 +290,30 @@ async function openConnections() {
     title.append(el('h3',provider.name),el('p',provider.description));
     const content = el('div');
     content.className = 'connection-card-details';
-    if (info.names?.length) {
+    if (info.records?.length) {
+      const {records} = info;
       const list = el('ul');
-      for (const name of info.names) list.append(el('li',name));
-      content.append(el('strong',info.names.length+' '+(info.names.length===1 ? provider.single : provider.item)+' saved'),list);
+      const firebase = provider.id==='ga4' && records.every(record=>sourceDisplayName('ga4',record.name)!==record.name);
+      if (provider.id==='ga4') list.className = 'connection-property-list';
+      for (const record of records) {
+        const name = sourceDisplayName(provider.id,record.name);
+        const item = el('li');
+        if (provider.id==='ga4' && !selecting) {
+          const button = action(name,()=>{
+            requestedAnalytics = {workspace,property:record.id};
+            document.querySelectorAll('nav button')[3].click();
+          });
+          button.className = 'connection-report-link';
+          button.setAttribute('aria-label','View Analytics report for '+name);
+          item.append(button);
+        } else item.textContent = name;
+        if (!firebase && provider.id==='ga4' && name!==record.name) item.append(el('small','Firebase'));
+        list.append(item);
+      }
+      content.append(el('strong',records.length+' '+(records.length===1 ? provider.single : provider.item)+' saved'));
+      if (firebase) content.append(el('p','Firebase account'+(selecting ? '' : ' · Choose a property to open its report.')));
+      else if (provider.id==='ga4' && !selecting) content.append(el('p','Choose a property to open its report.'));
+      content.append(list);
     } else {
       content.append(el('p',info.note));
     }
@@ -286,7 +325,8 @@ async function openConnections() {
       if (info.state==='error') {
         footer.append(action('Retry status',refresh));
       } else {
-        const text = (info.state==='connected' ? 'Reconnect ' : 'Connect ')+provider.name;
+        const text = provider.id==='ga4' && info.state==='connected' ? 'Add or reconnect properties'
+          : (info.state==='connected' ? 'Reconnect ' : 'Connect ')+provider.name;
         const connect = action(text,async () => {
           if (revision!==activeRevision || !container.isConnected) return;
           connect.disabled = true;
@@ -322,8 +362,8 @@ async function openConnections() {
       if (!current()) return;
       for (const [index,provider] of providers.entries()) {
         if (provider.id==='hubspot') continue;
-        const names = records.filter(record=>record.source===provider.id).map(record=>record.name);
-        const info = names.length ? {label:'Connected',state:'connected',names}
+        const saved = records.filter(record=>record.source===provider.id);
+        const info = saved.length ? {label:'Connected',state:'connected',records:saved}
           : {label:'Not connected',state:'unsaved',note:'No '+provider.item+' selected yet.'};
         cards.children[index].replaceWith(drawCard(provider,info,base,version));
       }
@@ -335,7 +375,7 @@ async function openConnections() {
     });
     const hubspot = requestJSON(base+'/hubspot').then(details=>{
       if (!current()) return;
-      const info = details.portal_id ? {label:'Connected',state:'connected',names:['HubSpot account '+details.portal_id]}
+      const info = details.portal_id ? {label:'Connected',state:'connected',records:[{name:'HubSpot account '+details.portal_id}]}
         : details.configured ? {label:'Not connected',state:'unsaved',note:'No HubSpot account authorized yet.'}
         : {label:'Setup required',state:'setup',note:'An administrator must configure HubSpot OAuth.'};
       cards.lastElementChild.replaceWith(drawCard(providers.at(-1),info,base,version));
@@ -385,15 +425,19 @@ async function openConnections() {
     const items = provider?.item || 'properties';
     const list = el('div');
     list.className = 'connections-choices';
+    const firebase = provider?.id==='ga4' && selection.properties.length>0
+      && selection.properties.every(item=>sourceDisplayName('ga4',item.name)!==item.name);
     choices.hidden = false;
     choices.append(el('h3','Choose '+selection.source+' '+items),
-      el('p','SafeNestT will read data from the '+items+' you select.'),list);
+      el('p','SafeNestT will read data from the '+items+' you select.'));
+    if (firebase) choices.append(el('p','Firebase account'));
+    choices.append(list);
     for (const property of selection.properties) {
       const label = el('label');
       const box = el('input');
       box.type = 'checkbox';
       box.value = property.id;
-      label.append(box,el('span',property.name));
+      label.append(box,el('span',firebase ? sourceDisplayName('ga4',property.name) : property.name));
       list.append(label);
     }
     const footer = el('div');
@@ -526,7 +570,7 @@ async function openHubSpotCRM() {
       workspace.append(option);
     }
     if (workspace.value) await load();
-    else status.textContent = 'No authorized workspace.';
+    else status.textContent = 'No workspace is available for this account.';
   } catch(error) {
     status.textContent = 'Could not load workspaces.';
   }
@@ -576,6 +620,8 @@ function drawGoogleTrend(canvas, points, metric, realtime, start, end) {
 }
 
 async function openGoogleAnalytics() {
+  const preferred = requestedAnalytics;
+  requestedAnalytics = null;
   const panel = document.getElementById('google-analytics');
   if (!panel) return;
   const make = connectionElement;
@@ -661,7 +707,7 @@ async function openGoogleAnalytics() {
     const isGA=item?.source==='ga4';
     const labels=isGA ? (realtime ? ['Active users','Events'] : ['Sessions','Views']) : item?.source==='youtube' ? ['Views','Watch time (min)'] : ['Impressions','Clicks'];
     if (!labels.includes(metric)) metric=labels[0];
-    name.textContent=item?.name || 'Google reporting';
+    name.textContent=sourceDisplayName(item?.source,item?.name) || 'Google reporting';
     description.textContent=item ? ((channelLabels[item.source] || 'Google')+' · '+(realtime ? 'Last 30 minutes · refreshes every minute' : 'Daily reporting')) : '';
     realtimeButton.hidden=!isGA;
     segment.hidden=!isGA;
@@ -753,7 +799,7 @@ async function openGoogleAnalytics() {
       }
     }
   }
-  async function listProperties() {
+  async function listProperties(preferredProperty) {
     const current=++revision;
     reset();
     realtime=false;
@@ -767,7 +813,9 @@ async function openGoogleAnalytics() {
       const saved=await requestJSON(base);
       if (current!==revision || !panel.isConnected) return;
       properties=saved.slice().sort((a,b)=>Number(b.source==='search-console')-Number(a.source==='search-console') || a.name.localeCompare(b.name));
-      properties.forEach((item,index)=>option(property,item.name,index));
+      properties.forEach((item,index)=>option(property,sourceDisplayName(item.source,item.name),index));
+      const selected = properties.findIndex(item=>item.id===preferredProperty);
+      if (selected>=0) property.value=selected;
       property.disabled=!properties.length;
       if (!properties.length) feedback('No connected properties. Add a Google source in Connected accounts.');
       render();
@@ -780,7 +828,7 @@ async function openGoogleAnalytics() {
     reset();
     loadReport();
   };
-  workspace.onchange=listProperties;
+  workspace.onchange=()=>listProperties();
   property.onchange=()=>{realtime=false;reset();loadReport();};
   days.onchange=()=>{reset();loadReport();};
   refresh.onclick=loadReport;
@@ -790,8 +838,9 @@ async function openGoogleAnalytics() {
   try {
     for (const item of await requestJSON('/v1/workspaces')) option(workspace,item.name,item.id);
     if (!panel.isConnected) return;
-    if (workspace.value) await listProperties();
-    else feedback('No authorized workspace.');
+    if (preferred && Array.from(workspace.options).some(item=>item.value===preferred.workspace)) workspace.value=preferred.workspace;
+    if (workspace.value) await listProperties(preferred?.workspace===workspace.value ? preferred.property : undefined);
+    else feedback('No workspace is available for this account.');
   } catch(error) { feedback(error.message,true); }
 }
 document.querySelectorAll('nav button')[3].addEventListener('click',openGoogleAnalytics);
@@ -804,7 +853,7 @@ async function openChannelWorkspace() {
   const hero = el('div');
   hero.className = 'channel-hero';
   const heading = el('div');
-  heading.append(el('p','Last 7 completed days'),el('h2','Weekly marketing review'),el('p','Review results, see what needs attention, and prepare your next move.'));
+  heading.append(el('p','Last 7 completed days'),el('h1','Weekly marketing review'),el('p','Review results, see what needs attention, and prepare your next move.'));
   const controls = el('div');
   controls.className = 'channel-controls';
   const label = el('label','Workspace');
@@ -903,7 +952,7 @@ async function openChannelWorkspace() {
       const record = source==='hubspot' ? crm : reports.find(item=>item.source===source);
       const state = record?.status || 'unsaved';
       const isCRM = source==='hubspot';
-      const description = state==='available' ? (isCRM ? 'Live CRM records' : record.name)
+      const description = state==='available' ? (isCRM ? 'Live CRM records' : sourceDisplayName(source,record.name))
         : state==='empty' ? 'Provider returned no rows for this period.'
         : state==='unsaved' ? 'No saved connection.'
         : state==='setup' ? 'HubSpot OAuth setup required.'
