@@ -18,6 +18,11 @@ OBJECTIVES = {
     'summary': 'Summarize performance and identify a useful follow-up.',
     'growth': 'Suggest a growth experiment for an available channel, with a way to measure it.',
     'content': 'Suggest one draft content idea for an available channel and how to measure it.',
+    'automation': (
+        'Propose one workflow for an available channel: prepare a report, review performance, or prepare a draft. '
+        'Describe what would trigger it, what it would produce, and what a person should check before using it. '
+        'Do not propose automatic publishing, messages, or spending.'
+    ),
 }
 SCHEMA = {
     'type': 'object',
@@ -86,7 +91,7 @@ def generate(objective, reports, missing):
                 raise ValueError
         return output
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        raise HTTPException(503, 'Local Qwen is unavailable. Try again shortly.') from None
+        raise HTTPException(503, 'MIA is unavailable. Try again shortly.') from None
 
 
 def register(router, current_user, origin, connected, report):
@@ -100,11 +105,11 @@ def register(router, current_user, origin, connected, report):
         origin(request)
         objective = OBJECTIVES.get(payload.objective)
         if not objective:
-            raise HTTPException(422, 'Choose a performance, growth, or content brief.')
+            raise HTTPException(422, 'Choose a performance, growth, content, or automation brief.')
         # Check access before acquiring shared inference capacity.
         properties = connected(workspace, user)
         if not SLOTS.acquire(blocking=False):
-            raise HTTPException(429, 'The Marketing Director is already generating a brief. Try again shortly.')
+            raise HTTPException(429, 'MIA is already generating a brief. Try again shortly.')
         try:
             evidence = snapshot(workspace, user, lambda *_: properties, report)
             reports = [row for row in evidence['reports'] if row['status'] == 'available']

@@ -156,6 +156,51 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 #draft-panel .choice-cards,#hubspot-crm .choice-cards{margin:9px 0}
 #hubspot-crm>.choice-cards+.action{margin-bottom:8px}
 @media(max-width:630px){.analytics-toolbar{grid-template-columns:minmax(0,1fr)}.analytics-toolbar>.choice-cards:last-of-type{grid-column:1/-1}.analytics-toolbar>.action{justify-self:start}}
+
+:root{color-scheme:dark;--shell:#141916;--nav:#1a211d;--surface:#202823;--raised:#29342d;--stroke:#3e4d42;--text:#e4ebe3;--subtle:#b4c0b5;--accent:#a8d4b1;--active:#2e4234;--accent-border:#73987b;--warn:#f0bda6}
+body{background:var(--shell);color:var(--text)}
+aside{background:var(--nav)}
+aside h2 span,.action{background:#3b6247;color:#f3f8f3;border-color:#73987b}
+.action:hover{background:#486f52}
+nav button{color:var(--subtle)}
+nav button.active,nav button:hover{background:var(--active);color:var(--accent)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #abd5b3;outline-offset:3px}
+input,textarea{background:var(--shell);color:var(--text);border:1px solid #65776a;border-radius:7px;padding:8px 10px;font:inherit;min-width:0;max-width:100%}
+a,.analytics-table summary,.channel-mia details,.draft-mia details{color:var(--accent)}
+.segment,.analytics-kpi,.channel-score,.choice-options button,.connection-report-link,.connections-workspaces button,.connection-secondary{background:var(--raised);color:var(--text);border-color:var(--stroke)}
+.segment button[aria-pressed=true],.analytics-kpi[aria-pressed=true],.channel-score[aria-pressed=true],.choice-options button[aria-pressed=true],.connections-workspaces button[aria-pressed=true],.connection-secondary:hover,.connection-report-link:hover,.channel-filters button[aria-pressed=true]{background:var(--active);color:var(--accent);border-color:var(--accent-border)}
+.choice-options button[aria-pressed=true],.channel-score[aria-pressed=true]{box-shadow:inset 0 -2px var(--accent-border)}
+.channel-filters button{color:var(--subtle);border-color:var(--stroke)}
+.channel-status,.analytics-toolbar label{color:var(--subtle)}
+.channel-mia,.draft-mia{background:#233127;border-color:#455b49}
+.channel-badge,.connection-mark,.connections-message{background:var(--active);color:var(--accent);border-color:#546e59}
+.channel-badge[data-tone=neutral]{background:#343c35;color:#d0d9d0}
+.connection-mark[data-provider=ga4]{background:#494035;color:#f2d5a7}
+.connection-mark[data-provider=youtube],.channel-badge[data-tone=review]{background:#503a34;color:var(--warn)}
+.connection-mark[data-provider=hubspot]{background:#493c34;color:#f0c7ab}
+.analytics-note[data-error=true]{color:var(--warn)}
+.connections-choices input{accent-color:#84b691}
+.automation-intro:empty{display:none}
+.automation-intro h2{font:500 clamp(28px,5vw,43px)/1.1 Georgia,serif;letter-spacing:-.04em}
+.automation-intro p{margin-top:5px}
+#draft-panel{padding:0;background:transparent;border:0}
+#draft-panel>p:not(:empty){margin:10px 0}
+#draft-panel>.choice-cards{margin:13px 0}
+.draft-workspace{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:13px;align-items:start}
+.draft-workspace:has(>form:only-child){grid-template-columns:minmax(0,1fr)}
+.draft-editor,.draft-mia,.draft-history{display:grid;gap:12px;min-width:0;padding:16px;border:1px solid var(--stroke);border-radius:10px}
+.draft-editor,.draft-history{background:var(--surface)}
+.draft-editor label{display:grid;gap:4px;font-weight:650}
+.draft-editor textarea{resize:vertical;min-height:90px}
+.draft-editor>.action,.draft-mia>.action,.draft-suggestion>.connection-secondary{justify-self:start}
+.draft-editor>p,.draft-suggestion{font-size:13px}
+.draft-mia>p:empty,.draft-suggestion:empty{display:none}
+.draft-suggestion{display:grid;gap:8px;overflow-wrap:anywhere}
+.draft-history{margin-top:13px}
+.draft-record+.draft-record{border-top:1px solid var(--stroke);margin-top:8px;padding-top:8px}
+.draft-record p{overflow-wrap:anywhere}
+.draft-record p+p{margin-top:3px}
+@media(max-width:710px){.draft-workspace{grid-template-columns:minmax(0,1fr)}.automation-board .draft-mia{grid-row:1}}
 </style><aside><h2><span aria-hidden="true">S</span> SafeNestT</h2><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
 <section id="google-link" hidden class="card">
 <h3>Link your Google account</h3>
@@ -248,7 +293,239 @@ function choiceCards(label, {compact = false} = {}) {
   return control;
 }
 
-async function draftPanel(i){panel.replaceChildren();panel.hidden=true;const kind=({2:'campaign',4:'content',5:'lead',7:'automation'})[i];if(!kind)return;panel.hidden=false;const heading=document.createElement('h3');heading.textContent='Saved '+kind+' drafts';panel.append(heading);const status=document.createElement('p');status.setAttribute('role','status');panel.append(status);const form=document.createElement('form');const workspace=choiceCards('Workspace',{compact:true});form.append(workspace.root);const fields={};function field(name,label,type='text'){const l=document.createElement('label');l.style.display='block';l.style.margin='12px 0';l.textContent=label+' ';const input=document.createElement('input');input.type=type;input.required=true;l.append(input);form.append(l);fields[name]=input;return input}field('title','Title');if(kind==='campaign'){field('channel','Channel').value='facebook';field('objective','Objective').value='awareness';field('start','Start','date');field('end','End','date')}if(kind==='content'){field('channel','Channel').value='facebook';field('body','Content');field('planned_at','Planned local time','datetime-local')}if(kind==='automation'){field('task','Task').value='report';field('planned_at','Planned local time','datetime-local')}const save=document.createElement('button');save.type='submit';save.className='action';save.textContent='Save draft';save.disabled=true;form.append(save);panel.append(form);const records=document.createElement('div');panel.append(records);async function refresh(){records.replaceChildren();const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts');for(const r of rows.filter(r=>r.kind===kind)){const p=document.createElement('p');p.textContent=r.payload.title+' — draft — '+r.created_at;records.append(p)}if(!records.childNodes.length)records.textContent='No saved drafts.'}try{const ws=await requestJSON('/v1/workspaces');if(!form.isConnected)return;workspace.setOptions(ws);if(!ws.length){status.textContent='No authorized workspace available.';return}await refresh();save.disabled=false;workspace.onchange=()=>refresh().catch(e=>{status.textContent=e.message});form.onsubmit=async e=>{e.preventDefault();save.disabled=true;const payload={kind};for(const [k,v] of Object.entries(fields))payload[k]=k==='planned_at'?new Date(v.value).toISOString():v.value;try{await requestJSON('/v1/workspaces/'+encodeURIComponent(workspace.value)+'/drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});status.textContent='Draft saved. External execution disabled.';await refresh()}catch(e){status.textContent=e.message}finally{save.disabled=false}}}catch(e){status.textContent=e.message}}
+const draftAssistants = {
+  campaign: {objective:'growth', description:'Turn recent channel performance into a campaign idea and a way to measure it.'},
+  content: {objective:'content', description:'Get a content idea based on the reports available for this workspace.'},
+  automation: {objective:'automation', description:'Get a suggested workflow with a trigger, an expected result, and a review step.'},
+};
+const automationTasks = [
+  {id:'report',name:'Prepare report',note:'Collect the metrics needed for review.'},
+  {id:'review',name:'Review performance',note:'Check results and decide what needs attention.'},
+  {id:'draft',name:'Prepare draft',note:'Create something for a person to review.'},
+];
+
+function renderMiaBrief(container, brief) {
+  const el = connectionElement;
+  const draft = el('div');
+  draft.className = 'channel-brief';
+  draft.append(el('p',brief.brief),el('h4','Suggested next step'),el('p',brief.next_step));
+  const evidence = el('ul');
+  for (const report of brief.evidence) {
+    const totals = Object.entries(report.metrics).map(([name,value])=>name+' '+new Intl.NumberFormat().format(value));
+    evidence.append(el('li',channelLabels[report.source]+' · '+report.start+' to '+report.end+' · '+totals.join(', ')));
+  }
+  const disclosure = el('details');
+  disclosure.append(el('summary','See provider evidence'),evidence);
+  container.replaceChildren(draft,disclosure);
+  if (brief.missing_sources.length) {
+    container.append(el('p','Missing metrics from '+brief.missing_sources.map(key=>channelLabels[key]).join(', ')+'.'));
+  }
+}
+
+async function draftPanel(i) {
+  panel.replaceChildren();
+  panel.hidden = true;
+  const kind = ({2:'campaign',4:'content',5:'lead',7:'automation'})[i];
+  if (!kind) return;
+  const el = connectionElement;
+  const isAutomation = kind==='automation';
+  panel.hidden = false;
+  panel.classList.toggle('automation-board',isAutomation);
+  const intro = el('div');
+  intro.className = 'automation-intro';
+  if (isAutomation) intro.append(el('h2','Plan a workflow'),el('p','Prepare a report, review, or draft. Save it for later review.'));
+  const workspace = choiceCards('Workspace',{compact:true});
+  const status = el('p');
+  status.setAttribute('role','status');
+  const layout = el('div');
+  layout.className = 'draft-workspace';
+  const form = el('form');
+  form.className = 'draft-editor';
+  if (isAutomation) form.append(el('h3','New automation draft'));
+  const fields = {};
+  function field(name, labelText, {type='text', multiline=false, required=true} = {}) {
+    const label = el('label',labelText);
+    const input = el(multiline ? 'textarea' : 'input');
+    if (multiline) input.rows = 4;
+    else input.type = type;
+    input.required = required;
+    label.append(input);
+    form.append(label);
+    fields[name] = input;
+    return input;
+  }
+  field('title','Title').maxLength = 120;
+  if (kind==='campaign') {
+    field('channel','Channel').value = 'facebook';
+    field('objective','Objective').value = 'awareness';
+    field('start','Start',{type:'date'});
+    field('end','End',{type:'date'});
+  }
+  if (kind==='content') {
+    field('channel','Channel').value = 'facebook';
+    field('body','Content',{multiline:true}).maxLength = 5000;
+  }
+  let task;
+  if (isAutomation) {
+    task = choiceCards('Task type');
+    task.setOptions(automationTasks);
+    form.append(task.root);
+    field('body','Workflow notes',{multiline:true,required:false}).maxLength = 5000;
+  }
+  if (isAutomation||kind==='content') field('planned_at','Planned local time',{type:'datetime-local'});
+  if (isAutomation) form.append(el('p','The planned time is part of the draft. Saving does not schedule a run.'));
+  const save = el('button','Save draft');
+  save.type = 'submit';
+  save.className = 'action';
+  save.disabled = true;
+  form.append(save);
+  layout.append(form);
+
+  const records = el('div');
+  records.className = 'draft-records';
+  const history = el('section');
+  history.className = 'draft-history';
+  history.append(el('h3','Saved '+kind+' drafts'),records);
+  const assistant = draftAssistants[kind];
+  let generation = 0;
+  let saving = false;
+  let loadingRecords = false;
+  let generate, suggestion, aiStatus;
+  if (assistant) {
+    const mia = el('section');
+    mia.className = 'draft-mia';
+    generate = el('button','Ask MIA');
+    generate.className = 'action';
+    generate.type = 'button';
+    generate.disabled = true;
+    aiStatus = el('p');
+    aiStatus.setAttribute('role','status');
+    suggestion = el('div');
+    suggestion.className = 'draft-suggestion';
+    mia.append(el('h3',isAutomation ? 'MIA workflow assistant' : 'MIA draft assistant'),
+      el('p',assistant.description),generate,aiStatus,suggestion);
+    layout.append(mia);
+    generate.onclick = async () => {
+      const workspaceId = workspace.value;
+      const turn = ++generation;
+      generate.disabled = true;
+      aiStatus.textContent = 'Reading current reports and preparing a suggestion…';
+      suggestion.replaceChildren();
+      try {
+        const brief = await requestJSON('/v1/workspaces/'+encodeURIComponent(workspaceId)+'/channel-brief',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objective:assistant.objective}),
+        });
+        if (turn!==generation||!form.isConnected) return;
+        renderMiaBrief(suggestion,brief);
+        aiStatus.textContent = 'Suggestion ready for review.';
+        if (fields.body) {
+          const use = el('button',isAutomation ? 'Use in workflow notes' : 'Use in content draft');
+          use.type = 'button';
+          use.className = 'connection-secondary';
+          use.onclick = () => {
+            const copy = brief.brief+'\n\nSuggested next step: '+brief.next_step;
+            const current = fields.body.value.trim();
+            const combined = current ? current+'\n\n'+copy : copy;
+            if (combined.length>fields.body.maxLength) {
+              aiStatus.textContent = 'There is not enough space in the draft for the full suggestion.';
+              return;
+            }
+            fields.body.value = combined;
+            fields.body.focus();
+            use.disabled = true;
+          };
+          suggestion.append(use);
+        }
+      } catch(error) {
+        if (turn===generation&&form.isConnected) aiStatus.textContent = error.message;
+      } finally {
+        if (turn===generation&&form.isConnected) generate.disabled = false;
+      }
+    };
+  }
+  panel.append(intro,workspace.root,status,layout,history);
+
+  async function refresh() {
+    const selected = workspace.value;
+    records.textContent = 'Loading drafts…';
+    const rows = await requestJSON('/v1/workspaces/'+encodeURIComponent(selected)+'/drafts');
+    if (!form.isConnected||workspace.value!==selected) return;
+    records.replaceChildren();
+    for (const record of rows.filter(item=>item.kind===kind)) {
+      const entry = el('article');
+      entry.className = 'draft-record';
+      entry.append(el('p',record.payload.title+' — draft — '+record.created_at));
+      if (isAutomation && record.payload.due) {
+        const date = new Date(record.payload.due);
+        if (!Number.isNaN(date.valueOf())) entry.append(el('p','Planned for '+date.toLocaleString()));
+      }
+      if (isAutomation && record.payload.notes) entry.append(el('p',record.payload.notes));
+      records.append(entry);
+    }
+    if (!records.childNodes.length) records.textContent = 'No saved drafts.';
+  }
+
+  async function loadWorkspace() {
+    if (!workspace.value) return;
+    const selected = workspace.value;
+    ++generation;
+    suggestion?.replaceChildren();
+    if (aiStatus) aiStatus.textContent = '';
+    if (generate) generate.disabled = false;
+    status.textContent = '';
+    loadingRecords = true;
+    save.disabled = true;
+    try {
+      await refresh();
+    } catch(error) {
+      if (form.isConnected&&workspace.value===selected) status.textContent = error.message;
+    } finally {
+      if (form.isConnected&&workspace.value===selected) {
+        loadingRecords = false;
+        save.disabled = saving;
+      }
+    }
+  }
+  workspace.onchange = loadWorkspace;
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (!workspace.value||saving||loadingRecords) return;
+    const selected = workspace.value;
+    saving = true;
+    save.disabled = true;
+    workspace.disabled = true;
+    const payload = {kind};
+    if (task) payload.task = task.value;
+    try {
+      for (const [key,input] of Object.entries(fields)) {
+        payload[key] = key==='planned_at' ? new Date(input.value).toISOString() : input.value;
+      }
+      await requestJSON('/v1/workspaces/'+encodeURIComponent(selected)+'/drafts',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
+      });
+      if (form.isConnected) {
+        status.textContent = isAutomation ? 'Draft saved for review.' : 'Draft saved.';
+        await refresh();
+      }
+    } catch(error) {
+      if (form.isConnected) status.textContent = error.message;
+    } finally {
+      saving = false;
+      save.disabled = false;
+      workspace.disabled = false;
+    }
+  };
+  try {
+    const workspaces = await requestJSON('/v1/workspaces');
+    if (!form.isConnected) return;
+    workspace.setOptions(workspaces);
+    if (workspace.value) await loadWorkspace();
+    else status.textContent = 'No workspace is available for this account.';
+  } catch(error) {
+    if (form.isConnected) status.textContent = error.message;
+  }
+}
+
 document.querySelectorAll('nav button').forEach((button,i)=>button.addEventListener('click',()=>draftPanel(i)));
 
 const activityPanel=document.createElement('section');activityPanel.hidden=true;activityPanel.className='card';document.getElementById('draft-panel').after(activityPanel);
@@ -653,8 +930,8 @@ function drawGoogleTrend(canvas, points, metric, realtime, start, end) {
   const step = max <= 4 ? 1 : Math.ceil(max / 4);
   const ceiling = step * 4;
   ctx.font = '11px system-ui';
-  ctx.fillStyle = '#535d53';
-  ctx.strokeStyle = '#ded9ca';
+  ctx.fillStyle = '#b4c0b5';
+  ctx.strokeStyle = '#3e4d42';
   const format = new Intl.NumberFormat(undefined,{notation:'compact'});
   for (let i = 0; i <= 4; i++) {
     const y = bottom - i * plotHeight / 4;
@@ -1168,20 +1445,9 @@ async function openChannelWorkspace() {
       });
       if (version!==revision || !container.isConnected) return;
       aiStatus.textContent = 'Draft generated from '+brief.evidence.length+' provider report'+(brief.evidence.length===1?'':'s')+'.';
-      const draft = el('div');
-      draft.className = 'channel-brief';
-      draft.append(el('p',brief.brief),el('h4','Suggested next step'),el('p',brief.next_step));
-      const evidence = el('ul');
-      for (const report of brief.evidence) {
-        const totals = Object.entries(report.metrics).map(([name,value])=>name+' '+new Intl.NumberFormat().format(value));
-        evidence.append(el('li',channelLabels[report.source]+' · '+report.start+' to '+report.end+' · '+totals.join(', ')));
-      }
-      const disclosure = el('details');
-      disclosure.append(el('summary','See provider evidence'),evidence);
-      result.append(draft,disclosure);
-      if (brief.missing_sources.length) result.append(el('p','Missing metrics from '+brief.missing_sources.map(key=>channelLabels[key]).join(', ')+'.'));
+      renderMiaBrief(result,brief);
     } catch(error) {
-      if (version===revision) aiStatus.textContent = error.message.replace(/Local Qwen/g,'MIA').replace(/The Marketing Director/g,'MIA');
+      if (version===revision) aiStatus.textContent = error.message;
     } finally {
       if (version===revision) run.disabled = false;
     }

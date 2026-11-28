@@ -14,3 +14,14 @@ class DraftAPI(unittest.TestCase):
     with self.assertRaises(HTTPException):build(W,DraftInput(kind='campaign',title='fixture'))
  def test_extra(self):
     with self.assertRaises(ValueError):DraftInput(kind='lead',title='fixture',actor_id='other')
+
+
+def test_automation_notes_do_not_schedule_execution():
+    draft = build(W, DraftInput(
+        kind='automation', title='Review channel totals', task='review',
+        planned_at='2026-12-04T09:00:00-05:00', body='Review notes',
+    ))
+    assert draft['notes'] == 'Review notes'
+    assert draft['kind'] == 'review'
+    assert draft['scheduled'] is False
+    assert draft['external_execution'] is False

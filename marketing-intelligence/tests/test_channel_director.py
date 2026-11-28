@@ -61,4 +61,7 @@ def test_channel_director_uses_provider_data_and_checks_permission(monkeypatch):
     out = client.post(PATH+'/channel-brief', json={'objective':'summary'}, headers=headers)
     assert out.status_code == 200
     assert out.json()['evidence'] == [{**SITE, **METRICS, 'status':'available'}]
-    assert len(calls) == 1
+    workflow = client.post(PATH+'/channel-brief', json={'objective':'automation'}, headers=headers)
+    assert workflow.status_code == 200
+    assert workflow.json()['evidence'] == out.json()['evidence']
+    assert calls == [channel_director.OBJECTIVES['summary'], channel_director.OBJECTIVES['automation']]
