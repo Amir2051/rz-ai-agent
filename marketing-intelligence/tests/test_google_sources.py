@@ -105,13 +105,16 @@ def test_native_google_scopes_replay_tenant_and_selection(monkeypatch, tmp_path)
     assert client.get(resource).json() == [{'source':'ga4','id':'properties/200','name':'Second property'}]
     assert b'synthetic-refresh-token' not in (tmp_path/'auth.sqlite3').read_bytes()
 
-    def report(_client, source, prop, refresh, config):
+    def report(_client, source, prop, refresh, config, *, realtime=False):
         assert (source, prop, refresh, config['client_id']) == (
             'ga4', 'properties/200', 'synthetic-refresh-token', 'fixture-client')
-        return {'metrics': {'Sessions': 4}}
+        return {'metrics': {'Active users': 2}, 'minutes': 30} if realtime else {'metrics': {'Sessions': 4}}
     monkeypatch.setattr(google_sources, '_report', report)
     assert client.get(resource+'/ga4/report', params={'property_id':'properties/100'}).status_code == 404
     assert client.get(resource+'/ga4/report', params={'property_id':'properties/200'}).json() == {'metrics': {'Sessions': 4}}
+    assert client.get(resource+'/ga4/report', params={'property_id':'properties/200','realtime':True}).json() == {
+        'metrics': {'Active users': 2}, 'minutes': 30}
+    assert client.get(resource+'/search-console/report', params={'property_id':'example.invalid','realtime':True}).status_code == 422
 
 
 def test_google_reports_use_provider_api_and_refresh_token():
@@ -121,6 +124,10 @@ def test_google_reports_use_provider_api_and_refresh_token():
             return httpx.Response(200, json={'access_token':'fixture'})
         assert request.headers['authorization'] == 'Bearer fixture'
         if request.url.host == 'analyticsdata.googleapis.com':
+            if request.url.path.endswith(':runRealtimeReport'):
+                assert request.url.path == '/v1beta/properties/200:runRealtimeReport'
+                assert json.loads(request.content)['minuteRanges'] == [{'startMinutesAgo':29,'endMinutesAgo':0}]
+                return httpx.Response(200, json={'rows':[{'metricValues':[{'value':'2'},{'value':'7'}]}]})
             assert request.url.path == '/v1beta/properties/200:runReport'
             return httpx.Response(200, json={'rows':[{'metricValues':[{'value':'5'},{'value':'9'}]}]})
         assert request.url.host == 'www.googleapis.com'
@@ -134,3 +141,5 @@ def test_google_reports_use_provider_api_and_refresh_token():
         gsc = google_sources._report(client,'search-console','sc-domain:example.invalid','fixture',config)
         assert ga['metrics'] == {'Sessions':5,'Views':9}
         assert gsc['metrics'] == {'Clicks':2,'Impressions':8}
+        realtime = google_sources._report(client,'ga4','properties/200','fixture',config,realtime=True)
+        assert realtime == {'minutes':30,'metrics':{'Active users':2,'Events':7}}

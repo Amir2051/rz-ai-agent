@@ -166,23 +166,33 @@ async function openGoogleAnalytics() {
       const section = connectionElement('section');
       const status = connectionElement('p');
       status.setAttribute('role','status');
-      const button = connectionElement('button','Load last 28 days');
-      button.className='action';
-      section.append(connectionElement('h4',property.name),button,status);
+      section.append(connectionElement('h4',property.name));
+      function reportButton(label, realtime = false) {
+        const button = connectionElement('button',label);
+        button.className='action';
+        button.type='button';
+        section.append(button);
+        button.onclick=async () => {
+          if (section.querySelector('button:disabled')) return;
+          button.disabled=true;
+          status.textContent='Reading Google data…';
+          try {
+            const query = new URLSearchParams({property_id:property.id});
+            if (realtime) query.set('realtime','true');
+            const response = await fetch(base+'/'+property.source+'/report?'+query,{credentials:'same-origin'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(sourceErrors[data.detail] || 'Google report could not be loaded.');
+            const metrics = Object.entries(data.metrics).map(([key,value])=>key+': '+Number(value).toLocaleString());
+            const period = realtime ? 'Last '+data.minutes+' minutes' : data.start+' to '+data.end;
+            status.textContent = period+' · '+(metrics.join(' · ') || (realtime ? 'Google returned no recent activity.' : 'Google returned no rows for this period.'));
+          } catch(error) { status.textContent=error.message; }
+          finally { button.disabled=false; }
+        };
+      }
+      reportButton('Load last 28 days');
+      if (property.source==='ga4') reportButton('Load realtime');
+      section.append(status);
       entries.append(section);
-      button.onclick=async () => {
-        button.disabled=true;
-        status.textContent='Reading Google data…';
-        try {
-          const query = new URLSearchParams({property_id:property.id});
-          const response = await fetch(base+'/'+property.source+'/report?'+query,{credentials:'same-origin'});
-          const data = await response.json();
-          if (!response.ok) throw new Error(sourceErrors[data.detail] || 'Google report could not be loaded.');
-          const metrics = Object.entries(data.metrics).map(([label,value])=>label+': '+Number(value).toLocaleString());
-          status.textContent = data.start+' to '+data.end+' · '+(metrics.join(' · ') || 'Google returned no rows for this period.');
-        } catch(error) { status.textContent=error.message; }
-        finally { button.disabled=false; }
-      };
     }
   }
   try {

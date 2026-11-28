@@ -123,7 +123,7 @@ def _properties(client, source, token):
     raise ValueError('Google property pagination exceeded the request limit')
 
 
-def _report(client, source, property_id, refresh, config):
+def _report(client, source, property_id, refresh, config, *, realtime=False):
     response = client.post(TOKEN_URL, data={
         'refresh_token': refresh, 'client_id': config['client_id'],
         'client_secret': config['client_secret'], 'grant_type': 'refresh_token',
@@ -136,6 +136,18 @@ def _report(client, source, property_id, refresh, config):
     if source == 'ga4':
         if not re.fullmatch(r'properties/[0-9]+', property_id):
             raise ValueError('Invalid GA4 property')
+        if realtime:
+            response = client.post(
+                'https://analyticsdata.googleapis.com/v1beta/' + property_id + ':runRealtimeReport',
+                headers=headers, json={
+                    'minuteRanges': [{'startMinutesAgo': 29, 'endMinutesAgo': 0}],
+                    'metrics': [{'name': 'activeUsers'}, {'name': 'eventCount'}],
+                })
+            response.raise_for_status()
+            rows = response.json().get('rows', [])
+            metrics = dict(zip(('Active users', 'Events'),
+                               (int(item['value']) for item in rows[0]['metricValues']))) if rows else {}
+            return {'minutes': 30, 'metrics': metrics}
         response = client.post(
             'https://analyticsdata.googleapis.com/v1beta/' + property_id + ':runReport',
             headers=headers, json={
@@ -221,7 +233,10 @@ def routes(db, current_user, origin, session_cookie):
         return [{'source': source, 'id': prop, 'name': name} for source,prop,name in rows]
 
     @router.get('/v1/workspaces/{workspace}/google-sources/{source}/report')
-    def report(workspace: UUID, source: str, property_id: str, user=Depends(current_user)):
+    def report(workspace: UUID, source: str, property_id: str, realtime: bool = False,
+               user=Depends(current_user)):
+        if realtime and source != 'ga4':
+            raise HTTPException(422, 'Realtime reports require a GA4 property')
         if source not in GOOGLE_SCOPES or len(property_id) > 2048:
             raise HTTPException(404, 'Property not connected')
         require_manager(workspace, user)
@@ -236,7 +251,7 @@ def routes(db, current_user, origin, session_cookie):
         try:
             refresh = reveal(row[0], label)
             with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
-                return _report(client, source, property_id, refresh, _google_config())
+                return _report(client, source, property_id, refresh, _google_config(), realtime=realtime)
         except httpx.HTTPStatusError as exc:
             raise HTTPException(502, _google_error(exc)) from None
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
