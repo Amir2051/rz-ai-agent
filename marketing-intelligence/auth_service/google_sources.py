@@ -21,7 +21,7 @@ import httpx
 from pydantic import BaseModel, Field
 from uuid import UUID
 
-from auth_service import activation, google_login
+from auth_service import activation, google_login, hubspot_sources
 
 STATE_PREFIX = 'mi-source-'
 STATE_COOKIE = '__Host-mi_google_source'
@@ -291,7 +291,7 @@ def routes(db, current_user, origin, session_cookie):
     def connected(workspace: UUID, user=Depends(current_user)):
         require_manager(workspace, user)
         with store() as conn:
-            rows = conn.execute("""SELECT source,property_id,name FROM connections WHERE workspace=?
+            rows = conn.execute("""SELECT source,property_id,name FROM connections WHERE workspace=? AND source IN ('ga4','search-console','youtube')
                 ORDER BY source,name,property_id""", (str(workspace),)).fetchall()
         return [{'source': source, 'id': prop, 'name': name} for source,prop,name in rows]
 
@@ -431,4 +431,5 @@ def routes(db, current_user, origin, session_cookie):
                     (workspace,source,prop,record['properties'][prop],protect(record['refresh'],label)))
         return {'connected':len(selected)}
 
+    hubspot_sources.register(router, current_user, origin, require_manager, session, store, protect, reveal)
     return router,finish
