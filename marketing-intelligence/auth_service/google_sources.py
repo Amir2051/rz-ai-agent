@@ -21,7 +21,7 @@ import httpx
 from pydantic import BaseModel, Field
 from uuid import UUID
 
-from auth_service import activation, google_login, hubspot_sources
+from auth_service import activation, channel_director, google_login, hubspot_sources
 
 STATE_PREFIX = 'mi-source-'
 STATE_COOKIE = '__Host-mi_google_source'
@@ -432,4 +432,5 @@ def routes(db, current_user, origin, session_cookie):
         return {'connected':len(selected)}
 
     hubspot_sources.register(router, current_user, origin, require_manager, session, store, protect, reveal)
+    channel_director.register(router, current_user, origin, connected, report)
     return router,finish
