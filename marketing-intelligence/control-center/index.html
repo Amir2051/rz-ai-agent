@@ -98,6 +98,36 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 .channel-facts>div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--stroke)}
 .channel-facts dd{margin:0;font-weight:720;text-align:right}
 @media(max-width:750px){aside{padding:8px 15px;gap:8px}aside nav{width:100%}main{width:calc(100% - 30px)}.channel-columns{grid-template-columns:1fr}.channel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.channel-panel{padding:14px}.channel-activity li{grid-template-columns:92px minmax(0,1fr)}}
+
+.connections-page{display:grid;gap:16px}
+.connections-heading{padding:5px 0 22px;border-bottom:1px solid var(--stroke);margin:0;display:block}
+.connections-heading p:first-child{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.connections-heading h2{font:500 clamp(36px,6vw,65px)/1.04 Georgia,serif;letter-spacing:-.05em;margin:5px 0 8px}
+.connections-heading p:last-child{max-width:62ch}
+.connections-context{display:flex;align-items:center;flex-wrap:wrap;gap:9px;color:var(--subtle)}
+.connections-context strong{color:var(--text);font-size:12px}
+.connections-workspaces,.connection-card-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.connections-workspaces button,.connection-secondary{background:#fffcf5;border:1px solid #c9cbbd;border-radius:7px;padding:6px 10px;font-weight:650;color:#234a36}
+.connections-workspaces button[aria-pressed=true],.connection-secondary:hover{background:#e5ede1;border-color:#709177}
+.connections-message{background:#e8efe3;border:1px solid #d6ddcc;color:#234a36;border-radius:8px;padding:9px 12px}
+.connections-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;align-items:stretch}
+.connection-card{display:flex;flex-direction:column;align-items:stretch;gap:10px;min-width:0;padding:16px 18px}
+.connection-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.connection-mark{display:grid;place-items:center;min-width:36px;height:36px;border-radius:10px;padding:0 5px;background:#e5ede1;color:#234a36;font-size:12px;font-weight:800}
+.connection-mark[data-provider=ga4]{background:#f6e8cb;color:#67470f}
+.connection-mark[data-provider=youtube]{background:#f7e2dd;color:#84382d}
+.connection-mark[data-provider=hubspot]{background:#f8e8da;color:#744026}
+.connection-card-title h3,.connections-selection h3{font:500 26px/1.1 Georgia,serif;letter-spacing:-.035em}
+.connection-card-title p{margin-top:5px}
+.connection-card-details{border-top:1px solid var(--stroke);padding-top:9px;min-width:0;overflow-wrap:anywhere;font-size:13px}
+.connection-card-details ul{margin:4px 0 0;padding-left:18px;color:var(--subtle)}
+.connection-card-actions{margin-top:auto;padding-top:5px}
+.connections-selection{padding:16px 18px}
+.connections-selection>p{margin-top:5px}
+.connections-choices{display:grid;gap:5px;margin:11px 0}
+.connections-choices label{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--stroke);border-radius:6px;overflow-wrap:anywhere;cursor:pointer}
+.connections-choices input{margin:0;accent-color:#234a36}
+@media(max-width:630px){.connections-grid{grid-template-columns:1fr}.connection-card,.connections-selection{padding:14px}.connections-heading{padding-bottom:16px}}
 </style><aside><h2><span aria-hidden="true">S</span> SafeNestT</h2><nav id="nav"></nav></aside><main><header><div><h1 id="title">Command center</h1><p>SafeNestT Marketing Intelligence</p></div><button id="sign-out" class="action" type="button">Sign out</button></header><p id="google-linked" hidden>Google account linked.</p>
 <section id="google-link" hidden class="card">
 <h3>Link your Google account</h3>
@@ -112,7 +142,7 @@ select,input,textarea{background:#fffdf6;color:var(--text);border-color:#c9cbbd}
 </section><section id="view"></section><section id="draft-panel" class="card" style="margin-top:16px" hidden></section></main><script>
 const pages=['Weekly Review','Connected accounts','Campaigns','Analytics','Content calendar','Leads & CRM','MIA','Automations','Budget & approvals','Audit & security'];const row=(a,b)=>`<div class="line"><span>${a}</span><span class="muted">${b}</span></div>`;const card=(a,b)=>`<div class="card"><h3>${a}</h3>${b}</div>`;function show(i) {
   document.getElementById('title').textContent=pages[i];
-  document.body.classList.toggle('weekly',i===0||i===6);
+  document.body.classList.toggle('weekly',i===0||i===1||i===6);
   document.querySelectorAll('nav button').forEach((button,j)=>{
     button.classList.toggle('active',i===j);
     if(i===j) button.setAttribute('aria-current','page');
@@ -120,7 +150,7 @@ const pages=['Weekly Review','Connected accounts','Campaigns','Analytics','Conte
   });
   const views = {
     0:'<section class="channel-workspace" id="channel-workspace"></section>',
-    1:'<section class="card" id="connections"></section>',
+    1:'<section class="connections-page" id="connections"></section>',
     3:'<section class="analytics" id="google-analytics"></section>',
     5:'<section class="card" id="hubspot-crm"></section>',
     6:'<section class="channel-workspace" id="channel-workspace"></section>',
@@ -149,7 +179,6 @@ const activityPanel=document.createElement('section');activityPanel.hidden=true;
 async function openActivity(){activityPanel.replaceChildren();const heading=document.createElement('h3');heading.textContent='MCP activity history';activityPanel.append(heading);const ws=document.createElement('select');ws.setAttribute('aria-label','Activity workspace');activityPanel.append(ws);const records=document.createElement('div');activityPanel.append(records);async function refresh(){const w=ws.value;records.textContent='Loading activity…';try{const rows=await requestJSON('/v1/workspaces/'+encodeURIComponent(w)+'/activity');if(ws.value!==w||!ws.isConnected)return;records.replaceChildren();for(const r of rows){const p=document.createElement('p');p.textContent=[r.created_at,r.client,r.tool,r.outcome].join(' · ');records.append(p)}if(!rows.length)records.textContent='No recorded activity.'}catch(e){records.textContent=e.message}}try{for(const w of await requestJSON('/v1/workspaces')){const o=document.createElement('option');o.value=w.id;o.textContent=w.name;ws.append(o)}ws.onchange=refresh;if(ws.value)await refresh();else records.textContent='No authorized workspace.'}catch(e){records.textContent=e.message}}
 document.querySelectorAll('nav button').forEach((b,i)=>b.addEventListener('click',()=>{activityPanel.hidden=i!==9;if(i===9)openActivity()}));
 
-const connectionSources = [['ga4','Google Analytics 4'],['search-console','Google Search Console'],['youtube','YouTube']];
 const sourceErrors = {
   expired:'Start the connection again. The prior request expired or its session changed.',
   denied:'Google authorization was cancelled.',
@@ -178,133 +207,260 @@ function connectionElement(tag, value) {
   return element;
 }
 
+let connectionWorkspace = '';
+
 async function openConnections() {
   const container = document.getElementById('connections');
   if (!container) return;
-  container.replaceChildren(connectionElement('h3','Data connections'));
-  const status = connectionElement('p', connectionMessage);
+  const el = connectionElement;
+  const providers = [
+    {id:'ga4', name:'Google Analytics 4', mark:'GA', single:'property', description:'Import site traffic and recent activity from the properties you select.', item:'properties'},
+    {id:'search-console', name:'Google Search Console', mark:'SC', single:'site', description:'See how your verified sites perform in Google Search.', item:'sites'},
+    {id:'youtube', name:'YouTube', mark:'YT', single:'channel', description:'Read views and watch time for your selected YouTube channels.', item:'channels'},
+    {id:'hubspot', name:'HubSpot', mark:'HS', single:'account', description:'Bring contacts and deals into your workspace’s CRM view.', item:'accounts'},
+  ];
+  const heading = el('header');
+  heading.className = 'connections-heading';
+  heading.append(el('p','Read-only integrations'),
+    el('h2','Connected accounts'),
+    el('p','Choose which Google properties, YouTube channels, or HubSpot account this workspace can read.'));
+  const status = el('p',connectionMessage);
+  status.className = 'connections-message';
   status.setAttribute('role','status');
-  container.append(status);
-  const workspaces = connectionElement('select');
-  workspaces.setAttribute('aria-label','Connection workspace');
-  const controls = connectionElement('div');
-  const rows = connectionElement('div');
-  const choices = connectionElement('form');
-  const hubspot = connectionElement('div');
-  container.append(workspaces,controls,rows,choices,hubspot);
-  async function refreshHubSpot(workspace) {
-    hubspot.textContent = 'Checking HubSpot connection…';
-    const path = hubspotURL(workspace);
-    try {
-      const details = await requestJSON(path);
-      if (workspace !== workspaces.value || !hubspot.isConnected) return;
-      hubspot.replaceChildren(connectionElement('p', details.portal_id
-        ? 'HubSpot account '+details.portal_id+' connected'
-        : details.configured ? 'HubSpot account not connected' : 'HubSpot OAuth setup required'));
-      if (!details.configured) return;
-      const button = connectionElement('button', details.portal_id ? 'Reconnect HubSpot' : 'Connect HubSpot');
-      button.type = 'button';
-      button.onclick = async () => {
-        button.disabled = true;
-        try {
-          const result = await requestJSON(path+'/start', {method:'POST'});
-          location.assign(result.url);
-        } catch(error) {
-          if (workspace === workspaces.value) status.textContent = error.message;
-          button.disabled = false;
-        }
-      };
-      hubspot.append(button);
-    } catch(error) {
-      if (workspace === workspaces.value) hubspot.textContent = 'HubSpot connection status unavailable.';
+  status.hidden = !connectionMessage;
+  function message(text) {
+    status.textContent = text;
+    status.hidden = !text;
+  }
+  const context = el('div');
+  context.className = 'connections-context';
+  const choices = el('form');
+  choices.className = 'card connections-selection';
+  choices.hidden = true;
+  const cards = el('div');
+  cards.className = 'connections-grid';
+  container.replaceChildren(heading,context,status,choices,cards);
+  let workspace = '';
+  let revision = 0;
+  let selecting = false;
+
+  function action(text, handler) {
+    const button = el('button',text);
+    button.type = 'button';
+    button.className = 'action';
+    button.onclick = handler;
+    return button;
+  }
+
+  function drawCard(provider, info, base, activeRevision) {
+    const card = el('article');
+    card.className = 'card connection-card';
+    const head = el('div');
+    head.className = 'connection-card-head';
+    const mark = el('span',provider.mark);
+    mark.className = 'connection-mark';
+    mark.dataset.provider = provider.id;
+    mark.setAttribute('aria-hidden','true');
+    const badge = el('span',info.label);
+    badge.className = 'channel-badge';
+    if (info.state==='error'||info.state==='setup') badge.dataset.tone = 'review';
+    head.append(mark,badge);
+
+    const title = el('div');
+    title.className = 'connection-card-title';
+    title.append(el('h3',provider.name),el('p',provider.description));
+    const content = el('div');
+    content.className = 'connection-card-details';
+    if (info.names?.length) {
+      const list = el('ul');
+      for (const name of info.names) list.append(el('li',name));
+      content.append(el('strong',info.names.length+' '+(info.names.length===1 ? provider.single : provider.item)+' saved'),list);
+    } else {
+      content.append(el('p',info.note));
     }
+
+    card.append(head,title,content);
+    if (!selecting && info.state!=='setup' && info.state!=='loading') {
+      const footer = el('div');
+      footer.className = 'connection-card-actions';
+      if (info.state==='error') {
+        footer.append(action('Retry status',refresh));
+      } else {
+        const text = (info.state==='connected' ? 'Reconnect ' : 'Connect ')+provider.name;
+        const connect = action(text,async () => {
+          if (revision!==activeRevision || !container.isConnected) return;
+          connect.disabled = true;
+          message('');
+          const path = provider.id==='hubspot' ? base+'/hubspot/start' : base+'/google-sources/'+provider.id+'/start';
+          try {
+            const result = await requestJSON(path,{method:'POST'});
+            if (revision===activeRevision && container.isConnected) location.assign(result.url);
+          } catch(error) {
+            if (revision===activeRevision && container.isConnected) message(error.message);
+          } finally {
+            connect.disabled = false;
+          }
+        });
+        if (info.state==='connected') connect.className = 'connection-secondary';
+        footer.append(connect);
+      }
+      card.append(footer);
+    }
+    return card;
   }
-  function workspaceURL() {
-    return '/v1/workspaces/'+encodeURIComponent(workspaces.value)+'/google-sources';
-  }
+
   async function refresh() {
-    const selectedWorkspace = workspaces.value;
-    rows.textContent = 'Reading saved connections…';
-    const connected = await requestJSON(workspaceURL());
-    if (workspaces.value !== selectedWorkspace || !container.isConnected) return;
-    rows.replaceChildren();
-    for (const [id, name] of connectionSources) {
-      const properties = connected.filter(item => item.source===id);
-      const line = connectionElement('p',name+': '+(properties.length ? properties.map(item=>item.name).join(', ') : id==='youtube' ? 'No channels selected' : 'No properties selected'));
-      rows.append(line);
-    }
+    if (!workspace) return;
+    const base = '/v1/workspaces/'+encodeURIComponent(workspace);
+    const version = ++revision;
+    const current = () => version===revision && container.isConnected;
+    const loading = {label:'Checking',state:'loading',note:'Reading saved connections…'};
+    cards.setAttribute('aria-busy','true');
+    cards.replaceChildren(...providers.map(provider=>drawCard(provider,loading,base,version)));
+    const unavailable = {label:'Unavailable',state:'error',note:'Connection status could not be loaded.'};
+    const google = requestJSON(base+'/google-sources').then(records=>{
+      if (!current()) return;
+      for (const [index,provider] of providers.entries()) {
+        if (provider.id==='hubspot') continue;
+        const names = records.filter(record=>record.source===provider.id).map(record=>record.name);
+        const info = names.length ? {label:'Connected',state:'connected',names}
+          : {label:'Not connected',state:'unsaved',note:'No '+provider.item+' selected yet.'};
+        cards.children[index].replaceWith(drawCard(provider,info,base,version));
+      }
+    }).catch(()=>{
+      if (!current()) return;
+      for (const [index,provider] of providers.entries()) {
+        if (provider.id!=='hubspot') cards.children[index].replaceWith(drawCard(provider,unavailable,base,version));
+      }
+    });
+    const hubspot = requestJSON(base+'/hubspot').then(details=>{
+      if (!current()) return;
+      const info = details.portal_id ? {label:'Connected',state:'connected',names:['HubSpot account '+details.portal_id]}
+        : details.configured ? {label:'Not connected',state:'unsaved',note:'No HubSpot account authorized yet.'}
+        : {label:'Setup required',state:'setup',note:'An administrator must configure HubSpot OAuth.'};
+      cards.lastElementChild.replaceWith(drawCard(providers.at(-1),info,base,version));
+    }).catch(()=>{
+      if (current()) cards.lastElementChild.replaceWith(drawCard(providers.at(-1),unavailable,base,version));
+    });
+    await Promise.all([google,hubspot]);
+    if (current()) cards.removeAttribute('aria-busy');
   }
-  try {
-    for (const workspace of await requestJSON('/v1/workspaces')) {
-      const option = connectionElement('option',workspace.name);
-      option.value = workspace.id;
-      workspaces.append(option);
-    }
-    if (!workspaces.value) {
-      status.textContent = 'No authorized workspace.';
+
+  function drawWorkspace(workspaces) {
+    const active = workspaces.find(item=>item.id===workspace);
+    if (!active) return;
+    const label = el('strong','Workspace');
+    if (workspaces.length===1||selecting) {
+      context.replaceChildren(label,el('span',active.name));
       return;
     }
+    const options = el('div');
+    options.className = 'connections-workspaces';
+    options.setAttribute('role','group');
+    options.setAttribute('aria-label','Connection workspace');
+    for (const item of workspaces) {
+      const button = el('button',item.name);
+      button.type = 'button';
+      button.setAttribute('aria-pressed',String(item.id===workspace));
+      button.onclick = () => {
+        if (item.id===workspace) return;
+        connectionWorkspace = workspace = item.id;
+        for (const option of options.children) option.setAttribute('aria-pressed',String(option===button));
+        connectionMessage = '';
+        message('');
+        refresh();
+      };
+      options.append(button);
+    }
+    context.replaceChildren(label,options);
+  }
+
+  function clearSelection() {
+    pendingConnection = null;
+    history.replaceState(null,'','/#connected');
+  }
+
+  function drawSelection(grant, selection) {
+    const provider = providers.find(item=>item.name===selection.source);
+    const items = provider?.item || 'properties';
+    const list = el('div');
+    list.className = 'connections-choices';
+    choices.hidden = false;
+    choices.append(el('h3','Choose '+selection.source+' '+items),
+      el('p','SafeNestT will read data from the '+items+' you select.'),list);
+    for (const property of selection.properties) {
+      const label = el('label');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.value = property.id;
+      label.append(box,el('span',property.name));
+      list.append(label);
+    }
+    const footer = el('div');
+    footer.className = 'connection-card-actions';
+    const save = el('button','Save selected '+items);
+    save.className = 'action';
+    save.type = 'submit';
+    const cancel = action('Cancel',()=>{
+      clearSelection();
+      connectionMessage = '';
+      openConnections();
+    });
+    cancel.className = 'connection-secondary';
+    footer.append(save,cancel);
+    choices.append(footer);
+    choices.onsubmit = async event => {
+      event.preventDefault();
+      const properties = Array.from(list.querySelectorAll('input:checked'),input=>input.value);
+      if (!properties.length) {
+        message('Select at least one item before saving.');
+        list.querySelector('input')?.focus();
+        return;
+      }
+      save.disabled = cancel.disabled = true;
+      try {
+        const result = await requestJSON('/v1/google-source-selection',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grant,properties}),
+        });
+        clearSelection();
+        connectionMessage = 'Saved '+result.connected+' '+(result.connected===1 ? 'connection' : 'connections')+'.';
+        if (container.isConnected) await openConnections();
+      } catch(error) {
+        if (container.isConnected) message(error.message);
+        save.disabled = cancel.disabled = false;
+      }
+    };
+  }
+
+  try {
+    if (!connectionMessage) message('Loading workspaces…');
+    const workspaces = await requestJSON('/v1/workspaces');
+    if (!container.isConnected) return;
+    if (!workspaces.length) {
+      message('No workspace is available for this account.');
+      return;
+    }
+    workspace = workspaces.some(item=>item.id===connectionWorkspace) ? connectionWorkspace : workspaces[0].id;
+    message(connectionMessage);
     if (pendingConnection) {
       const grant = pendingConnection;
-      const selection = await requestJSON('/v1/google-source-selection/'+encodeURIComponent(grant));
-      workspaces.value = selection.workspace;
-      workspaces.disabled = true;
-      const resourceLabel = selection.source==='YouTube' ? 'channels' : 'properties';
-      choices.append(connectionElement('h4','Select '+selection.source+' '+resourceLabel));
-      for (const property of selection.properties) {
-        const label = connectionElement('label');
-        label.style.display = 'block';
-        const box = connectionElement('input');
-        box.type='checkbox';
-        box.value=property.id;
-        label.append(box,document.createTextNode(' '+property.name));
-        choices.append(label);
+      try {
+        const selection = await requestJSON('/v1/google-source-selection/'+encodeURIComponent(grant));
+        if (!container.isConnected) return;
+        if (!workspaces.some(item=>item.id===selection.workspace)) throw new Error('This workspace is no longer available.');
+        workspace = selection.workspace;
+        selecting = true;
+        drawSelection(grant,selection);
+      } catch(error) {
+        clearSelection();
+        message(error.message);
       }
-      const save = connectionElement('button','Save selected '+resourceLabel);
-      save.className='action';
-      choices.append(save);
-      choices.onsubmit = async event => {
-        event.preventDefault();
-        const properties = Array.from(choices.querySelectorAll('input:checked'),input=>input.value);
-        if (!properties.length) { status.textContent='Select at least one property.'; return; }
-        save.disabled=true;
-        try {
-          const result = await requestJSON('/v1/google-source-selection',{
-            method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({grant,properties})
-          });
-          pendingConnection = null;
-          connectionMessage = 'Saved '+result.connected+' '+resourceLabel+'.';
-          history.replaceState(null,'','/#connected');
-          await openConnections();
-        } catch(error) {
-          status.textContent=error.message;
-          save.disabled=false;
-        }
-      };
-    } else {
-      for (const [id,name] of connectionSources) {
-        const button=connectionElement('button','Connect '+name);
-        button.className='action';
-        button.type='button';
-        button.onclick=async () => {
-          button.disabled=true;
-          try {
-            const result=await requestJSON(workspaceURL()+'/'+id+'/start',{method:'POST'});
-            location.assign(result.url);
-          } catch(error) {
-            status.textContent=error.message;
-            button.disabled=false;
-          }
-        };
-        controls.append(button);
-      }
-      workspaces.onchange = () => Promise.all([refresh(), refreshHubSpot(workspaces.value)])
-        .catch(error=>{status.textContent=error.message});
     }
-    await Promise.all([refresh(), refreshHubSpot(workspaces.value)]);
+    connectionWorkspace = workspace;
+    drawWorkspace(workspaces);
+    await refresh();
   } catch(error) {
-    status.textContent=error.message;
+    if (container.isConnected) message(error.message);
   }
 }
 function hubspotURL(workspace) {
@@ -506,7 +662,7 @@ async function openGoogleAnalytics() {
     const labels=isGA ? (realtime ? ['Active users','Events'] : ['Sessions','Views']) : item?.source==='youtube' ? ['Views','Watch time (min)'] : ['Impressions','Clicks'];
     if (!labels.includes(metric)) metric=labels[0];
     name.textContent=item?.name || 'Google reporting';
-    description.textContent=item ? ((connectionSources.find(([id])=>id===item.source)?.[1] || 'Google')+' · '+(realtime ? 'Last 30 minutes · refreshes every minute' : 'Daily reporting')) : '';
+    description.textContent=item ? ((channelLabels[item.source] || 'Google')+' · '+(realtime ? 'Last 30 minutes · refreshes every minute' : 'Daily reporting')) : '';
     realtimeButton.hidden=!isGA;
     segment.hidden=!isGA;
     historyButton.setAttribute('aria-pressed',String(!realtime));
