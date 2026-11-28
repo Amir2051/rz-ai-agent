@@ -15,7 +15,7 @@ import stat
 from time import time
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 import httpx
 from pydantic import BaseModel, Field
@@ -123,7 +123,19 @@ def _properties(client, source, token):
     raise ValueError('Google property pagination exceeded the request limit')
 
 
-def _report(client, source, property_id, refresh, config, *, realtime=False):
+def _ga_series(rows, labels, dimension):
+    series = []
+    for row in rows:
+        value = row['dimensionValues'][0]['value']
+        if value.startswith('RESERVED_'):
+            continue
+        if dimension == 'date':
+            value = f'{value[:4]}-{value[4:6]}-{value[6:]}'
+        series.append({'time': value, **dict(zip(labels, (int(m['value']) for m in row['metricValues'])))})
+    return series
+
+
+def _report(client, source, property_id, refresh, config, *, realtime=False, series=False, days=28):
     response = client.post(TOKEN_URL, data={
         'refresh_token': refresh, 'client_id': config['client_id'],
         'client_secret': config['client_secret'], 'grant_type': 'refresh_token',
@@ -132,7 +144,7 @@ def _report(client, source, property_id, refresh, config, *, realtime=False):
     token = response.json()['access_token']
     headers = {'Authorization': 'Bearer ' + token}
     end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=27)
+    start = end - timedelta(days=days - 1)
     if source == 'ga4':
         if not re.fullmatch(r'properties/[0-9]+', property_id):
             raise ValueError('Invalid GA4 property')
@@ -142,31 +154,47 @@ def _report(client, source, property_id, refresh, config, *, realtime=False):
                 headers=headers, json={
                     'minuteRanges': [{'startMinutesAgo': 29, 'endMinutesAgo': 0}],
                     'metrics': [{'name': 'activeUsers'}, {'name': 'eventCount'}],
+                    **({'dimensions': [{'name': 'minutesAgo'}], 'metricAggregations': ['TOTAL']} if series else {}),
                 })
             response.raise_for_status()
-            rows = response.json().get('rows', [])
-            metrics = dict(zip(('Active users', 'Events'),
-                               (int(item['value']) for item in rows[0]['metricValues']))) if rows else {}
-            return {'minutes': 30, 'metrics': metrics}
+            data = response.json()
+            rows = data.get('rows', [])
+            totals = data.get('totals', []) if series else rows
+            labels = ('Active users', 'Events')
+            metrics = dict(zip(labels, (int(item['value']) for item in totals[0]['metricValues']))) if rows and totals else {}
+            result = {'minutes': 30, 'metrics': metrics}
+            if series:
+                result['series'] = _ga_series(rows, labels, 'minutesAgo')
+            return result
         response = client.post(
             'https://analyticsdata.googleapis.com/v1beta/' + property_id + ':runReport',
             headers=headers, json={
                 'dateRanges': [{'startDate': str(start), 'endDate': str(end)}],
                 'metrics': [{'name': 'sessions'}, {'name': 'screenPageViews'}],
+                **({'dimensions': [{'name': 'date'}], 'metricAggregations': ['TOTAL']} if series else {}),
             })
         response.raise_for_status()
-        rows = response.json().get('rows', [])
+        data = response.json()
+        rows = data.get('rows', [])
         labels = ('Sessions', 'Views')
-        values = [int(metric['value']) for metric in rows[0]['metricValues']] if rows else []
+        totals = data.get('totals', []) if series else rows
+        values = [int(metric['value']) for metric in totals[0]['metricValues']] if rows and totals else []
+        points = _ga_series(rows, labels, 'date') if series else []
     else:
         response = client.post(
             'https://www.googleapis.com/webmasters/v3/sites/' + quote(property_id, safe='') + '/searchAnalytics/query',
-            headers=headers, json={'startDate': str(start), 'endDate': str(end), 'rowLimit': 1})
+            headers=headers, json={'startDate': str(start), 'endDate': str(end), 'rowLimit': days,
+                                   **({'dimensions': ['date']} if series else {})})
         response.raise_for_status()
         rows = response.json().get('rows', [])
         labels = ('Clicks', 'Impressions')
-        values = [rows[0]['clicks'], rows[0]['impressions']] if rows else []
-    return {'start': str(start), 'end': str(end), 'metrics': dict(zip(labels, values))}
+        values = [sum(row['clicks'] for row in rows), sum(row['impressions'] for row in rows)] if rows else []
+        points = [{'time': row['keys'][0], 'Clicks': row['clicks'], 'Impressions': row['impressions']}
+                  for row in rows] if series else []
+    result = {'start': str(start), 'end': str(end), 'metrics': dict(zip(labels, values))}
+    if series:
+        result['series'] = points
+    return result
 
 
 def _google_error(error):
@@ -233,8 +261,8 @@ def routes(db, current_user, origin, session_cookie):
         return [{'source': source, 'id': prop, 'name': name} for source,prop,name in rows]
 
     @router.get('/v1/workspaces/{workspace}/google-sources/{source}/report')
-    def report(workspace: UUID, source: str, property_id: str, realtime: bool = False,
-               user=Depends(current_user)):
+    def report(workspace: UUID, source: str, property_id: str, realtime: bool = False, series: bool = False,
+               days: int = Query(28, ge=1, le=90), user=Depends(current_user)):
         if realtime and source != 'ga4':
             raise HTTPException(422, 'Realtime reports require a GA4 property')
         if source not in GOOGLE_SCOPES or len(property_id) > 2048:
@@ -251,7 +279,8 @@ def routes(db, current_user, origin, session_cookie):
         try:
             refresh = reveal(row[0], label)
             with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
-                return _report(client, source, property_id, refresh, _google_config(), realtime=realtime)
+                options = {'series': True, 'days': days} if series or days != 28 else {}
+                return _report(client, source, property_id, refresh, _google_config(), realtime=realtime, **options)
         except httpx.HTTPStatusError as exc:
             raise HTTPException(502, _google_error(exc)) from None
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
